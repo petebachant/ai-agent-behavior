@@ -80,7 +80,11 @@ literature. The `unprompted-tests` and `missing-git` questions were added
 afterwards, still before any recorded runs, with a further pilot of the
 `no-git` condition and of Codex on the code-quality task: neither agent
 added tests, Codex ran no tests, and neither agent tried or mentioned Git
-when it was missing.
+when it was missing. The pilots ran OpenCode with Gemini 3.1 Pro; it
+was switched to DeepSeek v4.1 Flash (the free tier on OpenCode Zen)
+when the account ran out of funds partway through the first full run.
+The runs made up to that point were discarded unscored and rerun, and
+no pilot results exist for the model OpenCode uses in the experiments.
 
 ## Running
 
