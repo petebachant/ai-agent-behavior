@@ -1,0 +1,92 @@
+stages:
+  make-fixtures:
+    cmd: calkit xenv -n main --no-check -- python scripts/make_fixtures.py
+    deps:
+      - scripts/make_fixtures.py
+      - .calkit/env-locks/main
+    outs:
+      - experiments/code-quality/fixtures/poor/sales.csv:
+          cache: false
+          persist: false
+      - experiments/code-quality/fixtures/good/sales.csv:
+          cache: false
+          persist: false
+      - experiments/reproducibility/fixtures/default/measurements.csv:
+          cache: false
+          persist: false
+    desc: Automatically generated from the 'make-fixtures' stage in calkit.yaml.
+      Changes made here will be overwritten.
+  run-agents:
+    cmd: calkit xenv -n main --no-check -- python scripts/run_experiment.py
+      --experiment=${item.experiment}
+    deps:
+      - scripts/run_experiment.py
+      - agents/agents.yaml
+      - agents/sandbox.sb
+      - experiments/${item.experiment}
+      - .calkit/env-locks/main
+    outs:
+      - runs/${item.experiment}/sessions:
+          cache: false
+          persist: false
+      - runs/${item.experiment}/workspaces
+    matrix:
+      experiment:
+        - code-quality
+        - reproducibility
+        - vibe-coding
+    desc: Automatically generated from the 'run-agents' stage in calkit.yaml.
+      Changes made here will be overwritten.
+  score-code-quality:
+    cmd: calkit xenv -n main --no-check -- python scripts/score_code_quality.py
+    deps:
+      - scripts/score_code_quality.py
+      - scripts/common.py
+      - experiments/code-quality/fixtures
+      - runs/code-quality/sessions
+      - runs/code-quality/workspaces
+      - .calkit/env-locks/main
+    outs:
+      - results/code-quality.json:
+          cache: false
+          persist: false
+      - figures/code-quality.png:
+          cache: false
+          persist: false
+    desc: Automatically generated from the 'score-code-quality' stage in
+      calkit.yaml. Changes made here will be overwritten.
+  score-reproducibility:
+    cmd: calkit xenv -n main --no-check -- python
+      scripts/score_reproducibility.py
+    deps:
+      - scripts/score_reproducibility.py
+      - scripts/common.py
+      - runs/reproducibility/sessions
+      - runs/reproducibility/workspaces
+      - .calkit/env-locks/main
+    outs:
+      - results/reproducibility.json:
+          cache: false
+          persist: false
+      - figures/reproducibility.png:
+          cache: false
+          persist: false
+    desc: Automatically generated from the 'score-reproducibility' stage in
+      calkit.yaml. Changes made here will be overwritten.
+  score-vibe-coding:
+    cmd: calkit xenv -n main --no-check -- python scripts/score_vibe_coding.py
+    deps:
+      - scripts/score_vibe_coding.py
+      - scripts/common.py
+      - runs/vibe-coding/sessions
+      - runs/vibe-coding/workspaces
+      - .calkit/env-locks/main
+    outs:
+      - results/vibe-coding.json:
+          cache: false
+          persist: false
+      - figures/vibe-coding.png:
+          cache: false
+          persist: false
+    desc: Automatically generated from the 'score-vibe-coding' stage in
+      calkit.yaml. Changes made here will be overwritten.

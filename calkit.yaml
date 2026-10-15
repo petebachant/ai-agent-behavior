@@ -4,11 +4,124 @@ title: AI agent behavior
 description: Experiments to test AI agent behavior.
 hub: https://calkit.io
 git_repo_url: https://github.com/petebachant/ai-agent-behavior
+requirements:
+  - sandbox-exec
+  - claude:
+      version_spec: "==2.1.300"
+      description: Claude Code CLI
+  - codex:
+      version_spec: "==0.162.1"
+      description: OpenAI Codex CLI
+  - opencode:
+      version_spec: "==1.18.34"
+      description: OpenCode CLI
+  - CLAUDE_CODE_OAUTH_TOKEN:
+      kind: env-var
+      description: >-
+        Long-lived Claude Code token, created with 'claude setup-token' and
+        kept in .env, since agents run with a fresh home directory.
+  - kind: setup
+    name: codex-auth
+    check_command: test -f ~/.codex/auth.json
+    setup_command: codex login
+    description: Codex credentials, copied into each run's fresh home.
+  - kind: setup
+    name: opencode-auth
+    check_command: test -f ~/.local/share/opencode/auth.json
+    setup_command: opencode auth login
+    description: OpenCode credentials, copied into each run's fresh home.
+environments:
+  main:
+    kind: uv-venv
+    path: requirements.txt
+    python: "3.13"
+pipeline:
+  stages:
+    make-fixtures:
+      kind: python-script
+      script_path: scripts/make_fixtures.py
+      environment: main
+      outputs:
+        - path: experiments/code-quality/fixtures/poor/sales.csv
+          storage: git
+        - path: experiments/code-quality/fixtures/good/sales.csv
+          storage: git
+        - path: experiments/reproducibility/fixtures/default/measurements.csv
+          storage: git
+    run-agents:
+      kind: python-script
+      description: >-
+        Run each agent on an experiment's task in sandboxed, fresh
+        workspaces, saving full sessions and final workspaces.
+      script_path: scripts/run_experiment.py
+      args:
+        - --experiment={experiment}
+      environment: main
+      iterate_over:
+        - arg_name: experiment
+          values:
+            - code-quality
+            - reproducibility
+            - vibe-coding
+      inputs:
+        - agents/agents.yaml
+        - agents/sandbox.sb
+        - experiments/{experiment}
+      outputs:
+        - path: runs/{experiment}/sessions
+          storage: git
+        - runs/{experiment}/workspaces
+    score-code-quality:
+      kind: python-script
+      script_path: scripts/score_code_quality.py
+      environment: main
+      inputs:
+        - scripts/common.py
+        - experiments/code-quality/fixtures
+        - runs/code-quality/sessions
+        - runs/code-quality/workspaces
+      outputs:
+        - path: results/code-quality.json
+          storage: git
+        - path: figures/code-quality.png
+          storage: git
+    score-reproducibility:
+      kind: python-script
+      script_path: scripts/score_reproducibility.py
+      environment: main
+      inputs:
+        - scripts/common.py
+        - runs/reproducibility/sessions
+        - runs/reproducibility/workspaces
+      outputs:
+        - path: results/reproducibility.json
+          storage: git
+        - path: figures/reproducibility.png
+          storage: git
+    score-vibe-coding:
+      kind: python-script
+      script_path: scripts/score_vibe_coding.py
+      environment: main
+      inputs:
+        - scripts/common.py
+        - runs/vibe-coding/sessions
+        - runs/vibe-coding/workspaces
+      outputs:
+        - path: results/vibe-coding.json
+          storage: git
+        - path: figures/vibe-coding.png
+          storage: git
 questions:
-  - If code quality of an initial codebase is poor, will AI make it
-    worse, better, or keep it the same?
-  - Will AI agents follow reproducibility best practices (version control,
-    environment management, pipeline with hashed I/O, defined provenance) by
-    default?
-  - What degrees of vibe coding are appropriate for what stage of software
-    product development?
+  - name: code-quality
+    question: >-
+      If code quality of an initial codebase is poor, will AI make it
+      worse, better, or keep it the same?
+  - name: reproducibility
+    question: >-
+      Will AI agents follow reproducibility best practices (version control,
+      environment management, pipeline with hashed I/O, defined provenance)
+      by default?
+  - name: vibe-coding
+    question: >-
+      What degrees of vibe coding are appropriate for what stage of software
+      product development?
