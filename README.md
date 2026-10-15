@@ -42,7 +42,14 @@ stderr, its own native session files (`native/`), a file listing of the
 final workspace, and run metadata (CLI version, model, timing, exit code).
 The final workspace itself, including any Git history the agent made, is
 archived to `runs/<experiment>/rep-<n>/workspaces/<condition>/<agent>.tar.gz`
-(kept with DVC). Each repetition of each experiment is its own pipeline
+(kept with DVC) for scoring, leaving out virtual environments and caches.
+Everything else the run left behind is archived too, for later inspection,
+to `runs/<experiment>/rep-<n>/trees/<condition>/<agent>.tar.gz` (kept with
+DVC): the whole fresh home, including virtual environments, files written
+outside the project directory, and the agent's own state and caches, plus
+the temp dir and the sandbox profile. Copied credentials are left out, and
+secrets and account identifiers are masked in every saved file. Each
+repetition of each experiment is its own pipeline
 stage, so more repetitions can be added by raising the range in
 `calkit.yaml` without rerunning the existing ones.
 

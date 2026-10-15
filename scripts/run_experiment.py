@@ -12,11 +12,15 @@ normal request.
 One invocation runs one repetition of an experiment: every agent on every
 condition, in parallel. For each run, the agent's full session (its streamed
 output plus its own native session files) is saved under
-``runs/<experiment>/rep-<n>/sessions`` and the final state of the workspace
-under ``runs/<experiment>/rep-<n>/workspaces``.
+``runs/<experiment>/rep-<n>/sessions``, the final state of the workspace
+under ``runs/<experiment>/rep-<n>/workspaces`` (without virtual
+environments or caches, for scoring), and the full tree the run left behind
+(the whole fresh home and temp dir, minus copied credentials) under
+``runs/<experiment>/rep-<n>/trees``.
 """
 
 import argparse
+import base64
 import concurrent.futures
 import datetime
 import getpass
@@ -64,7 +68,19 @@ SYSTEM_BIN_DIRS = [
     "/sbin",
 ]
 SECRETS: list[str] = []
+# Credential files copied into a fresh home, left out of archives
+AUTH_FILES = [Path(".codex/auth.json"), Path(".local/share/opencode/auth.json")]
 _print_lock = threading.Lock()
+# Run dirs and agent processes in flight, cleaned up if the runner is killed
+# so copied credentials don't outlive it
+_active_roots: set[Path] = set()
+_active_procs: set[subprocess.Popen] = set()
+_active_lock = threading.Lock()
+_stopping = False
+
+
+class Stopping(Exception):
+    """The runner is being stopped, so no new run may start."""
 
 
 def log(msg: str) -> None:
@@ -302,6 +318,50 @@ def archive_workspace(work: Path, dest: Path) -> None:
         tar.add(work, arcname="workspace", filter=filt)
 
 
+def scrub_tree(root: Path) -> None:
+    """Redact secrets from every regular file under ``root``, in place.
+
+    Each secret is masked with as many characters as it has, so binary
+    files such as SQLite databases keep their layout.
+    """
+    secrets = [s.encode() for s in SECRETS]
+    for dirpath, _, filenames in os.walk(root):
+        for name in filenames:
+            path = Path(dirpath) / name
+            if path.is_symlink() or not path.is_file():
+                continue
+            try:
+                data = path.read_bytes()
+            except OSError:
+                continue
+            scrubbed = data
+            for secret in secrets:
+                scrubbed = scrubbed.replace(secret, b"*" * len(secret))
+            if scrubbed != data:
+                path.write_bytes(scrubbed)
+
+
+def archive_run_tree(run_root: Path, home: Path, dest: Path) -> None:
+    """Archive everything the run left behind, for later inspection.
+
+    This is the whole fresh home (the project with any virtual environments,
+    files written next to it, the agent's own state and caches) and the temp
+    dir, plus the sandbox profile. Only copied credentials and the
+    runner-made directory of command symlinks are left out.
+    """
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    skip = {run_root / "bin"} | {home / f for f in AUTH_FILES}
+
+    def filt(info: tarfile.TarInfo):
+        path = run_root.parent / info.name
+        if any(path == s or s in path.parents for s in skip):
+            return None
+        return info
+
+    with tarfile.open(dest, "w:gz") as tar:
+        tar.add(run_root, arcname=run_root.name, filter=filt)
+
+
 def run_once(
     agent: Agent,
     prompt: str,
@@ -309,13 +369,18 @@ def run_once(
     project_name: str,
     session_dir: Path,
     workspace_tar: Path,
+    tree_tar: Path,
     timeout_s: float,
     git_name: str,
     git_email: str,
     hide_commands: list[str],
 ) -> dict:
     user = getpass.getuser()
-    run_root = Path(tempfile.mkdtemp(dir="/private/tmp")).resolve()
+    with _active_lock:
+        if _stopping:
+            raise Stopping()
+        run_root = Path(tempfile.mkdtemp(dir="/private/tmp")).resolve()
+        _active_roots.add(run_root)
     try:
         home = run_root / user
         work = home / "projects" / project_name
@@ -364,21 +429,27 @@ def run_once(
         start = datetime.datetime.now(datetime.timezone.utc)
         timed_out = False
         with open(transcript, "w") as out, open(stderr_path, "w") as err:
-            proc = subprocess.Popen(
-                sandbox + agent.command(prompt),
-                cwd=work,
-                env=env,
-                stdin=subprocess.DEVNULL,
-                stdout=out,
-                stderr=err,
-                start_new_session=True,
-            )
+            with _active_lock:
+                if _stopping:
+                    raise Stopping()
+                proc = subprocess.Popen(
+                    sandbox + agent.command(prompt),
+                    cwd=work,
+                    env=env,
+                    stdin=subprocess.DEVNULL,
+                    stdout=out,
+                    stderr=err,
+                    start_new_session=True,
+                )
+                _active_procs.add(proc)
             try:
                 exit_code = proc.wait(timeout=timeout_s)
             except subprocess.TimeoutExpired:
                 timed_out = True
                 os.killpg(proc.pid, signal.SIGKILL)
                 exit_code = proc.wait()
+            finally:
+                _active_procs.discard(proc)
         end = datetime.datetime.now(datetime.timezone.utc)
         for path in (transcript, stderr_path):
             path.write_text(scrub(path.read_text()))
@@ -390,6 +461,10 @@ def run_once(
             "\n".join(files + excluded) + "\n"
         )
         archive_workspace(work, workspace_tar)
+        for f in AUTH_FILES:
+            (home / f).unlink(missing_ok=True)
+        scrub_tree(run_root)
+        archive_run_tree(run_root, home, tree_tar)
         return {
             "exit_code": exit_code,
             "timed_out": timed_out,
@@ -400,6 +475,25 @@ def run_once(
         }
     finally:
         shutil.rmtree(run_root, ignore_errors=True)
+        with _active_lock:
+            _active_roots.discard(run_root)
+
+
+def _clean_up_and_exit(signum, frame) -> None:
+    global _stopping
+    # Once this is set under the lock, no new run dir or agent can start
+    with _active_lock:
+        _stopping = True
+        procs, roots = list(_active_procs), list(_active_roots)
+    for proc in procs:
+        try:
+            os.killpg(proc.pid, signal.SIGKILL)
+        except OSError:
+            pass
+    for root in roots:
+        shutil.rmtree(root, ignore_errors=True)
+    log(f"Stopped by signal {signum}; removed {len(roots)} run dirs")
+    os._exit(128 + signum)
 
 
 def main() -> None:
@@ -412,6 +506,8 @@ def main() -> None:
     parser.add_argument("--agents", nargs="+")
     parser.add_argument("--out", type=Path)
     args = parser.parse_args()
+    for sig in (signal.SIGTERM, signal.SIGINT, signal.SIGHUP):
+        signal.signal(sig, _clean_up_and_exit)
 
     dotenv.load_dotenv(REPO / ".env")
     exp_dir = REPO / "experiments" / args.experiment
@@ -431,7 +527,11 @@ def main() -> None:
         REAL_HOME / ".local" / "share" / "opencode" / "auth.json",
     ]:
         if auth.exists():
-            SECRETS.extend(_string_leaves(json.loads(auth.read_text())))
+            leaves = _string_leaves(json.loads(auth.read_text()))
+            SECRETS.extend(leaves)
+            # Account identifiers inside tokens, which CLIs also write to
+            # their session files, e.g., Codex's creator_user_id
+            SECRETS.extend(i for t in leaves for i in _token_identifiers(t))
     git_name, git_email = git_identity()
     rep = args.rep
     out_dir = args.out or REPO / "runs" / args.experiment / f"rep-{rep}"
@@ -456,6 +556,7 @@ def main() -> None:
         workspace_tar = (
             out_dir / "workspaces" / cond / f"{agent_name}.tar.gz"
         )
+        tree_tar = out_dir / "trees" / cond / f"{agent_name}.tar.gz"
         attempts = []
         for attempt in range(1, args.max_attempts + 1):
             log(f"[{args.experiment}] {run_id} attempt {attempt} starting")
@@ -468,6 +569,7 @@ def main() -> None:
                 project_name=cfg["project_name"],
                 session_dir=session_dir,
                 workspace_tar=workspace_tar,
+                tree_tar=tree_tar,
                 timeout_s=timeout_s,
                 git_name=git_name,
                 git_email=git_email,
@@ -514,6 +616,38 @@ def main() -> None:
     # isn't cached as complete; the sessions are kept for inspection
     if failed:
         sys.exit(1)
+
+
+IDENTIFIER_CLAIM = re.compile(
+    r"(^|[._])(id|sub|sid|poid|user_id|account_id|account_user_id|"
+    r"session_id)$"
+)
+
+
+def _token_identifiers(token: str) -> list[str]:
+    """Account, user, org, and session IDs in a JWT's claims."""
+    if not (token.startswith("eyJ") and token.count(".") == 2):
+        return []
+    payload = token.split(".")[1]
+    try:
+        claims = json.loads(base64.urlsafe_b64decode(payload + "=" * 4))
+    except ValueError:
+        return []
+    found = []
+
+    def walk(obj, key=""):
+        if isinstance(obj, dict):
+            for k, v in obj.items():
+                walk(v, k)
+        elif isinstance(obj, list):
+            for v in obj:
+                walk(v, key)
+        elif (isinstance(obj, str) and len(obj) >= 16
+              and IDENTIFIER_CLAIM.search(key)):
+            found.append(obj)
+
+    walk(claims)
+    return found
 
 
 def _string_leaves(obj) -> list[str]:
