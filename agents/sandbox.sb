@@ -1,0 +1,19 @@
+;; macOS Seatbelt profile applied to every agent process and its children.
+;; The runner substitutes @RUN_DIR@ (the per-run directory holding the fresh
+;; home, which contains the working directory, and the temp dir) and
+;; @READ_ONLY_PATHS@ (the agent's install/runtime paths). Contents of /Users,
+;; /Volumes and the shared temp dirs are unreadable except for the run's own
+;; directory, so agents cannot see this repo, other runs, or the real home
+;; directory. File metadata (stat) stays allowed so path resolution works.
+;; Note: allow rules must name the same operation as the deny they override.
+(version 1)
+(allow default)
+(deny file-read-data file-write*
+  (subpath "/Users")
+  (subpath "/Volumes")
+  (subpath "/private/tmp")
+  (subpath "/private/var/folders"))
+(allow file-read-data file-write*
+  (subpath "@RUN_DIR@"))
+(allow file-read-data
+  @READ_ONLY_PATHS@)
