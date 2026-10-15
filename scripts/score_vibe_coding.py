@@ -3,6 +3,11 @@
 Each run's ``recommendations.json`` gives a level on a 0--4 scale for each
 stage, from 0 (no AI-written code) to 4 (accept AI-written code without
 reading it). These are the agents' opinions, not measurements of outcomes.
+
+Each run is also checked against the shape of the pre-registered
+hypothesis: full vibe coding for prototypes, never more vibe coding at a
+later stage than an earlier one, and at most line-by-line review (level 2)
+for critical systems.
 """
 
 import json
@@ -42,6 +47,12 @@ def read_levels(ws: Path) -> dict | None:
         return {s: int(stages[s]["level"]) for s in STAGES}
     except (OSError, ValueError, KeyError, TypeError):
         return None
+
+
+def matches_hypothesis(levels: dict) -> bool:
+    path = [levels[s] for s in STAGES]
+    nonincreasing = all(a >= b for a, b in zip(path, path[1:]))
+    return path[0] == 4 and nonincreasing and path[-1] <= 2
 
 
 def stats(levels: list[int]) -> dict:
@@ -96,7 +107,8 @@ def main() -> None:
             continue
         records.append({"run_id": run["run_id"], "agent": run["agent"],
                         "model": run["model"], "rep": run["rep"],
-                        "levels": levels})
+                        "levels": levels,
+                        "matches_hypothesis": matches_hypothesis(levels)})
     by_agent = defaultdict(dict)
     for agent in sorted({r["agent"] for r in records}):
         for s in STAGES:
@@ -111,6 +123,10 @@ def main() -> None:
             "overall": overall,
             "by_agent": by_agent,
             "n_runs": len(records),
+            "frac_matches_hypothesis": (
+                sum(r["matches_hypothesis"] for r in records) / len(records)
+                if records else None
+            ),
         },
         "failed_runs": failed,
         "runs": records,

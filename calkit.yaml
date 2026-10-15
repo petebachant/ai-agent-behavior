@@ -21,6 +21,64 @@ questions:
       and Claude Code in particular behaves conservatively regardless of
       code health [@borg2026]. On the well-structured codebase, quality will
       mostly stay the same.
+    answer:
+      if poor_better > 0.5: >-
+        Better, in most runs, contrary to the hypothesis. Asked only to add
+        two features to the poorly written tool, agents left it better in
+        {poor_n_better} of {poor_n} runs by the majority of three metrics
+        (lint violations per 100 SLOC, mean cyclomatic complexity, and
+        maintainability index): Claude {claude_poor:.0%} of its runs, Codex
+        {codex_poor:.0%}, and OpenCode {opencode_poor:.0%}. On average, lint
+        density changed by {poor_d_ruff:+.1f} violations per 100 SLOC and
+        mean complexity by {poor_d_cc:+.1f}.
+      elif poor_worse > 0.5: >-
+        Worse, in most runs: agents left the poorly written tool worse in
+        {poor_n_worse} of {poor_n} runs by the majority of three metrics
+        (Claude {claude_poor_worse:.0%} of its runs, Codex
+        {codex_poor_worse:.0%}, and OpenCode {opencode_poor_worse:.0%}).
+      else: >-
+        Neither consistently: agents left the poorly written tool better in
+        {poor_n_better}, worse in {poor_n_worse}, and the same in
+        {poor_n_same} of {poor_n} runs by the majority of three metrics
+        (better for Claude in {claude_poor:.0%} of its runs, Codex
+        {codex_poor:.0%}, and OpenCode {opencode_poor:.0%}).
+    evidence:
+      - kind: figure
+        path: figures/code-quality.png
+      - kind: result
+        path: results/code-quality.json
+        values:
+          poor_n: summary.poor.overall.n_runs
+          poor_better: summary.poor.overall.frac_better
+          poor_worse: summary.poor.overall.frac_worse
+          poor_n_better: summary.poor.overall.n_better
+          poor_n_worse: summary.poor.overall.n_worse
+          poor_n_same: summary.poor.overall.n_same
+          poor_d_ruff: summary.poor.overall.mean_change_ruff_per_100_sloc
+          poor_d_cc: summary.poor.overall.mean_change_mean_cc
+          claude_poor: summary.poor.by_agent.claude.frac_better
+          codex_poor: summary.poor.by_agent.codex.frac_better
+          opencode_poor: summary.poor.by_agent.opencode.frac_better
+          claude_poor_worse: summary.poor.by_agent.claude.frac_worse
+          codex_poor_worse: summary.poor.by_agent.codex.frac_worse
+          opencode_poor_worse: summary.poor.by_agent.opencode.frac_worse
+          good_better: summary.good.overall.frac_better
+          good_same: summary.good.overall.frac_same
+          good_worse: summary.good.overall.frac_worse
+          good_d_mi: summary.good.overall.mean_change_mi
+          good_d_cc: summary.good.overall.mean_change_mean_cc
+          poor_working: summary.poor.overall.frac_features_working
+          good_working: summary.good.overall.frac_features_working
+    notes: >-
+      On the well-structured codebase, {good_better:.0%} of runs made it
+      better, {good_same:.0%} kept it the same, and {good_worse:.0%} made it
+      worse, mainly through a lower maintainability index ({good_d_mi:+.1f}
+      points on average) and slightly higher complexity ({good_d_cc:+.2f}).
+      These metrics don't separate added functionality from degraded
+      structure, so some drop is expected from adding features at all. The
+      hidden acceptance checks passed in {poor_working:.0%} of runs on the
+      poor codebase and {good_working:.0%} on the good one. Each agent ran
+      three times per codebase, with one model each.
   - name: unprompted-tests
     question: >-
       Do AI agents write tests when the user doesn't ask for them?
@@ -31,6 +89,33 @@ questions:
       run the existing tests and at least half will add tests for the new
       features; on the poor codebase, which has none, fewer than a third of
       runs will add tests.
+    answer:
+      if good_ran > 0.5 and good_added >= 0.5 and poor_added < 1 / 3: >-
+        Mostly only when the codebase already has tests, as hypothesized. On
+        the well-structured codebase, which has a unittest suite,
+        {good_added:.0%} of runs added tests (Claude {claude_added:.0%} of
+        its runs, Codex {codex_added:.0%}, and OpenCode
+        {opencode_added:.0%}) and {good_ran:.0%} ran them. On the poor
+        codebase, which has none, {poor_added:.0%} of runs added tests and
+        {poor_ran:.0%} ran any.
+      else: >-
+        Not in the way hypothesized. On the well-structured codebase, which
+        has a unittest suite, {good_added:.0%} of runs added tests (Claude
+        {claude_added:.0%} of its runs, Codex {codex_added:.0%}, and
+        OpenCode {opencode_added:.0%}) and {good_ran:.0%} ran them. On the
+        poor codebase, which has none, {poor_added:.0%} of runs added tests
+        and {poor_ran:.0%} ran any.
+    evidence:
+      - kind: result
+        path: results/code-quality.json
+        values:
+          good_added: summary.good.overall.frac_added_tests
+          good_ran: summary.good.overall.frac_ran_tests
+          poor_added: summary.poor.overall.frac_added_tests
+          poor_ran: summary.poor.overall.frac_ran_tests
+          claude_added: summary.good.by_agent.claude.frac_added_tests
+          codex_added: summary.good.by_agent.codex.frac_added_tests
+          opencode_added: summary.good.by_agent.opencode.frac_added_tests
   - name: reproducibility
     question: >-
       Will AI agents follow reproducibility best practices (version control,
@@ -44,6 +129,45 @@ questions:
       them [@trisovic2022]. Fewer than half of runs will use version control
       or declare their environment, fewer than 10% will set up a pipeline
       with hashed I/O, and essentially none will follow all four practices.
+    answer:
+      if practices == 0 and nogit_practices == 0: >-
+        No. In none of the {n} runs on an ordinary machine did an agent use
+        version control, declare its software environment, set up a
+        pipeline, or tie its figure to versioned code, even though
+        {scripted:.0%} of runs wrote a script that produces the figure and
+        {venv:.0%} created a virtual environment without recording what was
+        in it. The {n_nogit} runs on a machine without Git didn't follow any
+        of the practices either. This is consistent with the hypothesis, if
+        more extreme.
+      elif all_four < 0.1 and vc < 0.5 and env < 0.5 and pipe < 0.1: >-
+        Rarely, as hypothesized. Of {n} runs on an ordinary machine,
+        {vc:.0%} used version control, {env:.0%} declared their software
+        environment, {pipe:.0%} set up a pipeline with hashed I/O,
+        {prov:.0%} tied their figure to versioned code, and {all_four:.0%}
+        did all four.
+      else: >-
+        More often than hypothesized. Of {n} runs on an ordinary machine,
+        {vc:.0%} used version control, {env:.0%} declared their software
+        environment, {pipe:.0%} set up a pipeline with hashed I/O,
+        {prov:.0%} tied their figure to versioned code, and {all_four:.0%}
+        did all four.
+    evidence:
+      - kind: figure
+        path: figures/reproducibility.png
+      - kind: result
+        path: results/reproducibility.json
+        values:
+          n: summary.default.overall.n_runs
+          vc: summary.default.overall.frac_version_control
+          env: summary.default.overall.frac_environment_management
+          pipe: summary.default.overall.frac_pipeline_hashed_io
+          prov: summary.default.overall.frac_defined_provenance
+          all_four: summary.default.overall.frac_all_practices
+          practices: summary.default.overall.mean_n_practices
+          scripted: summary.default.overall.frac_figures_scripted
+          venv: summary.default.overall.frac_venv_created
+          n_nogit: summary.no-git.overall.n_runs
+          nogit_practices: summary.no-git.overall.mean_n_practices
   - name: missing-git
     question: >-
       If Git isn't installed, will AI agents suggest installing it?
@@ -52,6 +176,34 @@ questions:
       reproducibility hypothesis), most will never try to use Git and so
       never notice it is missing. Fewer than 25% of runs on a machine
       without Git will suggest or attempt installing it.
+    answer:
+      if tried == 0 and mentioned == 0 and suggested == 0: >-
+        No, but only because Git never came up. In none of the {n} runs on a
+        machine without Git did an agent try a Git command, mention Git, or
+        suggest or attempt installing it, and on the machine with Git,
+        {default_tried:.0%} of runs used it. The missing Git went unnoticed
+        rather than being worked around, consistent with the hypothesis.
+      elif suggested < 0.25: >-
+        Rarely, as hypothesized: {suggested:.0%} of {n} runs on a machine
+        without Git suggested or attempted installing it, while
+        {tried:.0%} tried a Git command and {mentioned:.0%} mentioned Git.
+      else: >-
+        Often, contrary to the hypothesis: {suggested:.0%} of {n} runs on a
+        machine without Git suggested or attempted installing it, and
+        {tried:.0%} tried a Git command.
+    evidence:
+      - kind: result
+        path: results/reproducibility.json
+        values:
+          n: summary.no-git.overall.n_runs
+          tried: summary.no-git.overall.frac_tried_git
+          mentioned: summary.no-git.overall.frac_mentioned_git
+          suggested: summary.no-git.overall.frac_suggested_or_attempted_git_install
+          default_tried: summary.default.overall.frac_tried_git
+    notes: >-
+      Since the agents didn't reach for Git, this doesn't show what they do
+      when they want Git and it's missing. A condition whose prompt asks for
+      version control would test that.
   - name: vibe-coding
     question: >-
       What degrees of vibe coding are appropriate for what stage of software
@@ -65,6 +217,42 @@ questions:
       overconfidence [@perry2023] and can slow experienced developers on
       mature codebases [@becker2025]. These are agents' recommendations, not
       measured outcomes.
+    answer: >-
+      According to the agents, vibe coding suits prototypes and gives way
+      to more human review as stakes rise. Median recommended levels on the
+      0--4 scale were {proto:g} for prototypes (full vibe coding), {poc:g}
+      for proofs of concept, {mvp:g} for MVPs, {prod:g} for production
+      software, and {crit:g} for critical systems, over {n} runs.
+      {match:.0%} of runs had the hypothesized shape: level 4 for
+      prototypes, never more vibe coding at a later stage, and at most
+      line-by-line review (level 2) for critical systems. The agents
+      differed most at the MVP stage (Claude's median {claude_mvp:g},
+      Codex's {codex_mvp:g}, and OpenCode's {opencode_mvp:g}) and for
+      critical systems, where recommendations ranged from {crit_min:g} to
+      {crit_max:g}.
+    evidence:
+      - kind: figure
+        path: figures/vibe-coding.png
+      - kind: result
+        path: results/vibe-coding.json
+        values:
+          n: summary.n_runs
+          match: summary.frac_matches_hypothesis
+          proto: summary.overall.prototype.median
+          poc: summary.overall.proof-of-concept.median
+          mvp: summary.overall.mvp.median
+          prod: summary.overall.production.median
+          crit: summary.overall.critical.median
+          crit_min: summary.overall.critical.min
+          crit_max: summary.overall.critical.max
+          claude_mvp: summary.by_agent.claude.mvp.median
+          codex_mvp: summary.by_agent.codex.mvp.median
+          opencode_mvp: summary.by_agent.opencode.mvp.median
+    notes: >-
+      The per-run check of the hypothesized shape was added to
+      scripts/score_vibe_coding.py after the runs, to make the
+      pre-registered wording testable.
+
 requirements:
   - kind: app
     name: sandbox-exec
