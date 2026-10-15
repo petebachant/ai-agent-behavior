@@ -85,6 +85,11 @@ was switched to DeepSeek v4.1 Flash (the free tier on OpenCode Zen)
 when the account ran out of funds partway through the first full run.
 The runs made up to that point were discarded unscored and rerun, and
 no pilot results exist for the model OpenCode uses in the experiments.
+After the answers were first written, the code-quality runs were
+redone because the well-structured fixture held stray Python cache
+files (`__pycache__/`) that aren't part of it in Git; the answers in
+`calkit.yaml` read their numbers from the current results, and its
+notes say where the earlier set differed.
 
 ## Running
 

@@ -78,7 +78,10 @@ questions:
       structure, so some drop is expected from adding features at all. The
       hidden acceptance checks passed in {poor_working:.0%} of runs on the
       poor codebase and {good_working:.0%} on the good one. Each agent ran
-      three times per codebase, with one model each.
+      three times per codebase, with one model each. An earlier set of
+      these runs, discarded because the good fixture held stray Python
+      cache files (commit d0515d5), also found the poor codebase made
+      better in most runs.
   - name: unprompted-tests
     question: >-
       Do AI agents write tests when the user doesn't ask for them?
@@ -98,6 +101,15 @@ questions:
         {opencode_added:.0%}) and {good_ran:.0%} ran them. On the poor
         codebase, which has none, {poor_added:.0%} of runs added tests and
         {poor_ran:.0%} ran any.
+      elif good_ran > 0.5 and poor_added < 1 / 3: >-
+        Sometimes, and mostly only when the codebase already has tests. On
+        the well-structured codebase, which has a unittest suite,
+        {good_ran:.0%} of runs ran the tests, as hypothesized, but only
+        {good_added:.0%} added tests, short of the hypothesized half (Claude
+        {claude_added:.0%} of its runs, Codex {codex_added:.0%}, and
+        OpenCode {opencode_added:.0%}). On the poor codebase, which has
+        none, {poor_added:.0%} of runs added tests and {poor_ran:.0%} ran
+        any.
       else: >-
         Not in the way hypothesized. On the well-structured codebase, which
         has a unittest suite, {good_added:.0%} of runs added tests (Claude
@@ -116,6 +128,13 @@ questions:
           claude_added: summary.good.by_agent.claude.frac_added_tests
           codex_added: summary.good.by_agent.codex.frac_added_tests
           opencode_added: summary.good.by_agent.opencode.frac_added_tests
+    notes: >-
+      With three runs per agent, one run moves an agent's share by a third.
+      An earlier set of the code-quality runs, discarded because the
+      fixture held stray Python cache files, met the hypothesis that at
+      least half of runs on the good codebase would add tests (commit
+      d0515d5), so that part of the result is sensitive to the small
+      sample. Codex never ran or added tests in either set.
   - name: reproducibility
     question: >-
       Will AI agents follow reproducibility best practices (version control,
