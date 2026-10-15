@@ -27,6 +27,7 @@ import re
 import shutil
 import signal
 import subprocess
+import sys
 import tarfile
 import tempfile
 import threading
@@ -509,6 +510,10 @@ def main() -> None:
         metas = list(pool.map(do_job, jobs))
     failed = [m for m in metas if m["exit_code"] != 0 or m["timed_out"]]
     log(f"[{args.experiment}] {len(metas) - len(failed)}/{len(metas)} ok")
+    # Fail the stage so a rep with missing runs (e.g., from an auth error)
+    # isn't cached as complete; the sessions are kept for inspection
+    if failed:
+        sys.exit(1)
 
 
 def _string_leaves(obj) -> list[str]:
