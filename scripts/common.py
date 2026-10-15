@@ -42,6 +42,46 @@ def load_runs(experiment: str) -> list[dict]:
     return runs
 
 
+def read_session(run: dict) -> dict:
+    """The agent's messages and shell commands from its streamed output.
+
+    Normalizes each CLI's event format into ``texts`` (assistant messages,
+    in order) and ``commands`` (shell commands it ran).
+    """
+    texts, commands = [], []
+    path = run["session_dir"] / "transcript.jsonl"
+    for line in path.read_text().splitlines():
+        try:
+            event = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        if not isinstance(event, dict):
+            continue
+        kind = event.get("type")
+        if run["cli"] == "claude" and kind == "assistant":
+            for block in event.get("message", {}).get("content", []):
+                if block.get("type") == "text":
+                    texts.append(block["text"])
+                elif block.get("type") == "tool_use" and block.get(
+                    "name"
+                ) == "Bash":
+                    commands.append(block.get("input", {}).get("command", ""))
+        elif run["cli"] == "codex" and kind == "item.completed":
+            item = event.get("item", {})
+            if item.get("type") == "agent_message":
+                texts.append(item.get("text", ""))
+            elif item.get("type") == "command_execution":
+                commands.append(item.get("command", ""))
+        elif run["cli"] == "opencode":
+            part = event.get("part", {})
+            if kind == "text":
+                texts.append(part.get("text", ""))
+            elif kind == "tool_use" and part.get("tool") == "bash":
+                state = part.get("state", {})
+                commands.append(state.get("input", {}).get("command", ""))
+    return {"texts": texts, "commands": commands}
+
+
 @contextmanager
 def extracted(tar_path: Path) -> Iterator[Path]:
     """Extract a workspace archive to a temporary directory."""

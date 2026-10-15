@@ -27,17 +27,24 @@ starts there. The agent and everything it launches run under the macOS
 Seatbelt profile in [`agents/sandbox.sb`](agents/sandbox.sb), which makes
 the contents of `/Users`, `/Volumes`, and the shared temp directories
 unreadable apart from the run's own directory, so agents cannot see this
-repo, other runs, or the real home directory. Prompts read like everyday
-requests, and the checks used to score the results never enter the
-workspace.
+repo, other runs, or the real home directory, and allows writes only inside
+the run's directory, so agents cannot change the machine. Commands are
+provided through one directory of symlinks to the usual system tool
+directories, which lets a condition leave a command off the machine
+entirely (it is also blocked from running by absolute path). Prompts read
+like everyday requests, and the checks used to score the results never
+enter the workspace.
 
 **Records.** For every run, the full session is saved to
-`runs/<experiment>/sessions/<condition>/<agent>/rep-<n>/` (kept in Git):
+`runs/<experiment>/rep-<n>/sessions/<condition>/<agent>/` (kept in Git):
 the exact prompt, the agent's streamed output (`transcript.jsonl`), its
 stderr, its own native session files (`native/`), a file listing of the
 final workspace, and run metadata (CLI version, model, timing, exit code).
 The final workspace itself, including any Git history the agent made, is
-archived to `runs/<experiment>/workspaces/` (kept with DVC).
+archived to `runs/<experiment>/rep-<n>/workspaces/<condition>/<agent>.tar.gz`
+(kept with DVC). Each repetition of each experiment is its own pipeline
+stage, so more repetitions can be added by raising the range in
+`calkit.yaml` without rerunning the existing ones.
 
 **Experiments.**
 
@@ -45,11 +52,14 @@ archived to `runs/<experiment>/workspaces/` (kept with DVC).
   and a well-structured version of the same sales-report tool. Code quality
   before and after is measured with Ruff violation density, mean cyclomatic
   complexity, and maintainability index; hidden acceptance checks verify the
-  features work.
+  features work. Since the request doesn't mention tests, whether agents
+  add or run tests is recorded too.
 - `reproducibility`: an everyday data analysis request in a directory
   holding only a CSV. The final workspace is checked for version control,
   environment management, a pipeline with hashed I/O, and defined
-  provenance.
+  provenance. In a `no-git` condition the same request is made on a machine
+  without Git, and the sessions are checked for whether agents try Git,
+  notice it is missing, or suggest or attempt installing it.
 - `vibe-coding`: a request for recommendations on how much to vibe code at
   each stage of product development, on a fixed 0--4 scale. These results
   are the agents' opinions, not measured outcomes.
@@ -66,7 +76,11 @@ codebase both agents' changes scored as improvements; neither used version
 control, declared an environment, or set up a pipeline; and both
 recommended levels 4, 3, 2, 2, 1 across the stages) were seen before the
 hypotheses were written, but the hypotheses are based on the cited
-literature.
+literature. The `unprompted-tests` and `missing-git` questions were added
+afterwards, still before any recorded runs, with a further pilot of the
+`no-git` condition and of Codex on the code-quality task: neither agent
+added tests, Codex ran no tests, and neither agent tried or mentioned Git
+when it was missing.
 
 ## Running
 

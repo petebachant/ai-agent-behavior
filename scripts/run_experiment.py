@@ -23,6 +23,7 @@ import getpass
 import hashlib
 import json
 import os
+import re
 import shutil
 import signal
 import subprocess
@@ -50,6 +51,17 @@ EXCLUDED_DIRS = {
     ".ipynb_checkpoints",
 }
 SANDBOX_PROFILE = REPO / "agents" / "sandbox.sb"
+# Where the usual command-line tools live; agents get them through one
+# directory of symlinks so a condition can leave some out
+SYSTEM_BIN_DIRS = [
+    "/opt/homebrew/bin",
+    "/opt/homebrew/sbin",
+    "/usr/local/bin",
+    "/usr/bin",
+    "/bin",
+    "/usr/sbin",
+    "/sbin",
+]
 SECRETS: list[str] = []
 _print_lock = threading.Lock()
 
@@ -221,12 +233,45 @@ def copy_text_tree(src: Path, dest: Path) -> None:
                 shutil.copy(path, target)
 
 
-def render_profile(run_root: Path, read_only: list[Path]) -> str:
+def is_hidden(name: str, hide_commands: list[str]) -> bool:
+    return any(name == c or name.startswith(f"{c}-") for c in hide_commands)
+
+
+def make_bin_dir(dest: Path, hide_commands: list[str]) -> None:
+    """Symlink the system's commands into one directory, minus hidden ones.
+
+    The first directory on the usual PATH providing a command wins, as it
+    would on the PATH itself.
+    """
+    dest.mkdir(parents=True)
+    for bin_dir in map(Path, SYSTEM_BIN_DIRS):
+        if not bin_dir.is_dir():
+            continue
+        for exe in sorted(bin_dir.iterdir()):
+            link = dest / exe.name
+            if link.exists() or link.is_symlink():
+                continue
+            if is_hidden(exe.name, hide_commands):
+                continue
+            if os.access(exe, os.X_OK) and not exe.is_dir():
+                link.symlink_to(exe)
+
+
+def render_profile(
+    run_root: Path, read_only: list[Path], hide_commands: list[str]
+) -> str:
     paths = "\n  ".join(f'(subpath "{p}")' for p in read_only)
+    # Backstop for hidden commands called by absolute path, e.g.,
+    # /usr/bin/git, so they can't run even though they're installed
+    extra = "\n".join(
+        f'(deny process-exec (regex #"/{re.escape(c)}(-[^/]*)?$"))'
+        for c in hide_commands
+    )
     return (
         SANDBOX_PROFILE.read_text()
         .replace("@RUN_DIR@", str(run_root))
         .replace("@READ_ONLY_PATHS@", paths)
+        .replace("@EXTRA_RULES@", extra)
     )
 
 
@@ -266,6 +311,7 @@ def run_once(
     timeout_s: float,
     git_name: str,
     git_email: str,
+    hide_commands: list[str],
 ) -> dict:
     user = getpass.getuser()
     run_root = Path(tempfile.mkdtemp(dir="/private/tmp")).resolve()
@@ -292,20 +338,13 @@ def run_once(
             "TMPDIR": str(tmp) + "/",
         }
         bin_dir = agent.setup_home(home, env)
-        env["PATH"] = ":".join(
-            [
-                str(bin_dir),
-                "/opt/homebrew/bin",
-                "/opt/homebrew/sbin",
-                "/usr/local/bin",
-                "/usr/bin",
-                "/bin",
-                "/usr/sbin",
-                "/sbin",
-            ]
-        )
+        system_bin = run_root / "bin"
+        make_bin_dir(system_bin, hide_commands)
+        env["PATH"] = f"{bin_dir}:{system_bin}"
         profile = run_root / "sandbox.sb"
-        profile.write_text(render_profile(run_root, agent.read_only_paths()))
+        profile.write_text(
+            render_profile(run_root, agent.read_only_paths(), hide_commands)
+        )
         sandbox = ["sandbox-exec", "-f", str(profile)]
 
         def run_cmd(cmd, **kwargs):
@@ -398,12 +437,18 @@ def main() -> None:
     timeout_s = cfg.get("timeout_minutes", 30) * 60
 
     jobs = []
-    for cond, fixture in cfg["conditions"].items():
+    for cond, cond_cfg in cfg["conditions"].items():
+        # A condition is a fixture path (or null), or a mapping with a
+        # 'fixture' and commands to leave off the machine ('hide_commands')
+        if not isinstance(cond_cfg, dict):
+            cond_cfg = {"fixture": cond_cfg}
         for agent_name in agents:
-            jobs.append((cond, fixture, agent_name))
+            jobs.append((cond, cond_cfg, agent_name))
 
     def do_job(job):
-        cond, fixture, agent_name = job
+        cond, cond_cfg, agent_name = job
+        fixture = cond_cfg.get("fixture")
+        hide_commands = cond_cfg.get("hide_commands", [])
         agent = agents[agent_name]
         run_id = f"rep-{rep}/{cond}/{agent_name}"
         session_dir = out_dir / "sessions" / cond / agent_name
@@ -425,6 +470,7 @@ def main() -> None:
                 timeout_s=timeout_s,
                 git_name=git_name,
                 git_email=git_email,
+                hide_commands=hide_commands,
             )
             attempts.append(
                 {
@@ -450,6 +496,7 @@ def main() -> None:
             "rep": rep,
             "project_name": cfg["project_name"],
             "fixture": fixture,
+            "hide_commands": hide_commands,
             "prompt_sha256": hashlib.sha256(prompt.encode()).hexdigest(),
             "attempts": attempts,
             **result,

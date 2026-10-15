@@ -13,10 +13,15 @@ A run made the code "better" if at least two of the three improved beyond a
 tolerance, "worse" if at least two got worse, and "same" otherwise. Hidden
 acceptance checks, never shown to the agents, verify the features work and
 that the default output is unchanged.
+
+Since neither request mentions tests, each run also records whether the
+agent added test functions to the codebase and whether it ran any tests
+(from the shell commands in its session).
 """
 
 import csv
 import json
+import re
 import statistics
 import subprocess
 import sys
@@ -35,6 +40,7 @@ from common import (
     TEXT_SECONDARY,
     extracted,
     load_runs,
+    read_session,
     save_fig,
     style_axes,
     write_json,
@@ -48,6 +54,12 @@ SINCE = "2024-04-01"
 TOL_RUFF_REL = 0.10
 TOL_CC_REL = 0.10
 TOL_MI_ABS = 2.0
+# Invoking a test runner or a test file, not just reading one
+TEST_COMMAND = re.compile(
+    r"(^|[\s;&|(\"'])(pytest|py\.test|nose2?|tox|nox)(\s|$|[;&|)\"'])"
+    r"|-m\s+(pytest|unittest)\b"
+    r"|\bpython[\d.]*\s+(\S*/)?test\w*\.py\b"
+)
 METRICS = {
     "ruff_per_100_sloc": "Lint violations per 100 SLOC",
     "mean_cc": "Mean cyclomatic complexity",
@@ -275,6 +287,18 @@ def summarize(records: list[dict]) -> dict:
             sum(r["acceptance"]["all_passed"] for r in records) / n
             if n else None
         ),
+        "frac_added_tests": (
+            sum(r["tests"]["added_tests"] for r in records) / n
+            if n else None
+        ),
+        "frac_ran_tests": (
+            sum(r["tests"]["ran_tests"] for r in records) / n
+            if n else None
+        ),
+        "mean_tests_added": (
+            statistics.mean(r["tests"]["n_added"] for r in records)
+            if n else None
+        ),
         **{
             f"mean_change_{k}": statistics.mean(
                 r["after"][k] - r["before"][k] for r in records
@@ -302,6 +326,15 @@ def main() -> None:
             after = quality_metrics(ws)
             checks = acceptance(ws, baseline_text[cond])
         verdict, per_metric = classify(baselines[cond], after)
+        test_commands = [c for c in read_session(run)["commands"]
+                         if TEST_COMMAND.search(c)]
+        n_added = after["n_tests"] - baselines[cond]["n_tests"]
+        tests = {
+            "n_added": n_added,
+            "added_tests": n_added > 0,
+            "ran_tests": bool(test_commands),
+            "test_commands": test_commands,
+        }
         records.append({
             "run_id": run["run_id"],
             "condition": cond,
@@ -313,6 +346,7 @@ def main() -> None:
             "verdict": verdict,
             "per_metric": per_metric,
             "acceptance": checks,
+            "tests": tests,
         })
     summary = {
         cond: {

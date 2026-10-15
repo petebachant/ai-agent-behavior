@@ -12,6 +12,12 @@ Each final workspace is checked for four practices:
 
 Looser variants are recorded too, e.g., any automation entry point (a
 Makefile or run-all script) and pinned dependency versions.
+
+In the ``no-git`` condition the same request is made on a machine without
+Git. From each session's messages and shell commands, it is recorded
+whether the agent tried to use Git, mentioned it, attempted to install it,
+or suggested installing it. Matching text is saved with each run so the
+classification can be audited.
 """
 
 import re
@@ -29,6 +35,7 @@ from common import (
     TEXT_SECONDARY,
     extracted,
     load_runs,
+    read_session,
     save_fig,
     style_axes,
     write_json,
@@ -54,6 +61,21 @@ AUTOMATION = re.compile(
 FIGURE_EXT = {".png", ".svg", ".pdf", ".jpg", ".jpeg"}
 SCRIPT_EXT = {".py", ".r", ".jl", ".sh", ".ipynb", ".m"}
 VENV_DIRS = {".venv", "venv", "env"}
+GIT_COMMAND = re.compile(r"(^|[\s;&|(`])git\s")
+GIT_INSTALL_COMMAND = re.compile(
+    r"\b(brew|port|conda|mamba|apt(-get)?|yum|dnf|pip3?|uv\s+pip)\s+"
+    r"install\b[^\n;&|]*\bgit\b|xcode-select\s+--install",
+    re.IGNORECASE,
+)
+GIT_INSTALL_SUGGESTION = re.compile(
+    r"\binstall(ing|ed)?\b[^.\n]{0,80}\bgit\b(?![-\w])"
+    r"|\bgit\b(?![-\w])[^.\n]{0,80}\b(not installed|isn't installed|"
+    r"is not installed|not available|isn't available|unavailable|missing|"
+    r"not found)\b"
+    r"|xcode-select\s+--install",
+    re.IGNORECASE,
+)
+GIT_MENTION = re.compile(r"\bgit\b(?![-\w])", re.IGNORECASE)
 
 
 def git(ws: Path, *args: str) -> str:
@@ -136,41 +158,86 @@ def score(ws: Path, excluded_dirs: list[str]) -> dict:
     return checks
 
 
-def summarize(records: list[dict]) -> dict:
-    n = len(records)
-    keys = list(PRACTICES) + ["all_practices", "pipeline_any", "env_pinned",
-                              "venv_created", "figures_scripted", "readme"]
-    out = {"n_runs": n}
-    for k in keys:
-        out[f"frac_{k}"] = (
-            sum(bool(r["checks"][k]) for r in records) / n if n else None
-        )
-    out["mean_n_practices"] = (
-        sum(r["checks"]["n_practices"] for r in records) / n if n else None
+def git_behavior(session: dict) -> dict:
+    """What an agent did and said about Git, with the matching text."""
+
+    def matches(pattern: re.Pattern, items: list[str]) -> list[str]:
+        found = []
+        for item in items:
+            for m in pattern.finditer(item):
+                start, end = max(m.start() - 80, 0), m.end() + 80
+                found.append(item[start:end].strip())
+        return found
+
+    commands, texts = session["commands"], session["texts"]
+    out = {
+        "git_commands": [c for c in commands if GIT_COMMAND.search(c)],
+        "install_commands": matches(GIT_INSTALL_COMMAND, commands),
+        "install_suggestions": matches(GIT_INSTALL_SUGGESTION, texts),
+        "mentions": matches(GIT_MENTION, texts),
+    }
+    out["tried_git"] = bool(out["git_commands"])
+    out["mentioned_git"] = bool(out["mentions"])
+    out["attempted_git_install"] = bool(out["install_commands"])
+    out["suggested_git_install"] = bool(out["install_suggestions"])
+    out["suggested_or_attempted_git_install"] = (
+        out["attempted_git_install"] or out["suggested_git_install"]
     )
     return out
 
 
-def plot(by_agent: dict, path: Path) -> None:
-    fig, ax = plt.subplots(figsize=(9, 3.8))
-    style_axes(ax)
-    agents = list(by_agent)
-    width = 0.8 / max(len(agents), 1)
-    for ai, agent in enumerate(agents):
-        x = [i + (ai - (len(agents) - 1) / 2) * width
-             for i in range(len(PRACTICES))]
-        vals = [100 * by_agent[agent][f"frac_{p}"] for p in PRACTICES]
-        style = AGENT_STYLE[agent]
-        bars = ax.bar(x, vals, width=width - 0.03, color=style["color"],
-                      label=agent, edgecolor="white", linewidth=1)
-        ax.bar_label(bars, labels=[f"{v:.0f}%" for v in vals], padding=2,
-                     fontsize=8, color=TEXT_SECONDARY)
-    ax.set_xticks(range(len(PRACTICES)), list(PRACTICES.values()))
-    ax.set_ylim(0, 110)
-    ax.set_ylabel("Runs following practice (%)", color=TEXT)
-    ax.legend(frameon=False, ncol=len(agents), loc="upper right")
-    ax.set_title("Reproducibility practices followed without being asked",
-                 color=TEXT, loc="left")
+def frac(records: list[dict], get) -> float | None:
+    if not records:
+        return None
+    return sum(bool(get(r)) for r in records) / len(records)
+
+
+def summarize(records: list[dict]) -> dict:
+    keys = list(PRACTICES) + ["all_practices", "pipeline_any", "env_pinned",
+                              "venv_created", "figures_scripted", "readme"]
+    out = {"n_runs": len(records)}
+    for k in keys:
+        out[f"frac_{k}"] = frac(records, lambda r: r["checks"][k])
+    for k in ["tried_git", "mentioned_git", "attempted_git_install",
+              "suggested_git_install", "suggested_or_attempted_git_install"]:
+        out[f"frac_{k}"] = frac(records, lambda r: r["git"][k])
+    out["mean_n_practices"] = (
+        sum(r["checks"]["n_practices"] for r in records) / len(records)
+        if records else None
+    )
+    return out
+
+
+def plot(summary: dict, path: Path) -> None:
+    conditions = list(summary)
+    fig, axes = plt.subplots(1, len(conditions),
+                             figsize=(6 * len(conditions), 3.8),
+                             sharey=True, squeeze=False)
+    for ax, cond in zip(axes[0], conditions):
+        style_axes(ax)
+        by_agent = summary[cond]["by_agent"]
+        agents = list(by_agent)
+        width = 0.8 / max(len(agents), 1)
+        for ai, agent in enumerate(agents):
+            x = [i + (ai - (len(agents) - 1) / 2) * width
+                 for i in range(len(PRACTICES))]
+            vals = [100 * by_agent[agent][f"frac_{p}"] for p in PRACTICES]
+            style = AGENT_STYLE[agent]
+            bars = ax.bar(x, vals, width=width - 0.03, color=style["color"],
+                          label=agent, edgecolor="white", linewidth=1)
+            ax.bar_label(bars, labels=[f"{v:.0f}%" for v in vals],
+                         padding=2, fontsize=8, color=TEXT_SECONDARY)
+        ax.set_xticks(range(len(PRACTICES)),
+                      [v.replace(" with ", "\nwith ")
+                       .replace(" management", "\nmanagement")
+                       for v in PRACTICES.values()])
+        ax.set_ylim(0, 110)
+        ax.set_title(f"{cond} condition", color=TEXT, loc="left",
+                     fontsize=11)
+    axes[0][0].set_ylabel("Runs following practice (%)", color=TEXT)
+    axes[0][-1].legend(frameon=False, ncol=3, loc="upper right")
+    fig.suptitle("Reproducibility practices followed without being asked",
+                 color=TEXT, x=0.01, ha="left")
     fig.tight_layout()
     save_fig(fig, path)
 
@@ -185,22 +252,30 @@ def main() -> None:
             checks = score(ws, run.get("excluded_dirs", []))
         records.append({
             "run_id": run["run_id"],
+            "condition": run["condition"],
             "agent": run["agent"],
             "model": run["model"],
             "rep": run["rep"],
             "checks": checks,
+            "git": git_behavior(read_session(run)),
         })
-    groups = defaultdict(list)
-    for r in records:
-        groups[r["agent"]].append(r)
-    by_agent = {a: summarize(rs) for a, rs in sorted(groups.items())}
+    summary = {}
+    for cond in sorted({r["condition"] for r in records}):
+        in_cond = [r for r in records if r["condition"] == cond]
+        groups = defaultdict(list)
+        for r in in_cond:
+            groups[r["agent"]].append(r)
+        summary[cond] = {
+            "overall": summarize(in_cond),
+            "by_agent": {a: summarize(rs) for a, rs in sorted(groups.items())},
+        }
     write_json(REPO / "results" / f"{EXPERIMENT}.json", {
         "description": __doc__.strip(),
-        "summary": {"overall": summarize(records), "by_agent": by_agent},
+        "summary": summary,
         "failed_runs": failed,
         "runs": records,
     })
-    plot(by_agent, REPO / "figures" / f"{EXPERIMENT}.png")
+    plot(summary, REPO / "figures" / f"{EXPERIMENT}.png")
 
 
 if __name__ == "__main__":
