@@ -10,16 +10,43 @@ questions:
     question: >-
       If code quality of an initial codebase is poor, will AI make it
       worse, better, or keep it the same?
+    hypothesis: >-
+      Agents will mostly keep poor code as it is: asked only to add
+      features, they will extend the existing structure rather than refactor
+      it, so fewer than half of runs on the poor codebase will make it better
+      (by the majority-of-three-metrics rule in
+      scripts/score_code_quality.py). Code models imitate the code in their
+      context, including its defects [@dinh2023], AI-assisted development
+      adds and copy-pastes code more than it restructures it [@harding2024],
+      and Claude Code in particular behaves conservatively regardless of
+      code health [@borg2026]. On the well-structured codebase, quality will
+      mostly stay the same.
   - name: reproducibility
     question: >-
       Will AI agents follow reproducibility best practices (version control,
       environment management, pipeline with hashed I/O, defined provenance)
       by default?
+    hypothesis: >-
+      No. Asked for an everyday analysis without mention of
+      reproducibility, agents will write a script and its outputs but rarely
+      adopt the practices recommended for research computing [@sandve2013;
+      @wilson2017], mirroring how seldom research code in the wild meets
+      them [@trisovic2022]. Fewer than half of runs will use version control
+      or declare their environment, fewer than 10% will set up a pipeline
+      with hashed I/O, and essentially none will follow all four practices.
   - name: vibe-coding
     question: >-
       What degrees of vibe coding are appropriate for what stage of software
       product development?
-
+    hypothesis: >-
+      Agents will recommend less vibe coding as the stakes rise: full vibe
+      coding (level 4) for throwaway prototypes, the setting the term was
+      coined for [@karpathy2025], falling monotonically across stages to at
+      most line-by-line review (level 2) for critical systems, given
+      evidence that AI assistance yields less secure code with
+      overconfidence [@perry2023] and can slow experienced developers on
+      mature codebases [@becker2025]. These are agents' recommendations, not
+      measured outcomes.
 requirements:
   - kind: app
     name: sandbox-exec
@@ -50,6 +77,9 @@ requirements:
     check_command: test -f ~/.local/share/opencode/auth.json
     setup_command: opencode auth login
     description: OpenCode credentials, copied into each run's fresh home.
+
+references:
+  - path: references.bib
 
 environments:
   main:

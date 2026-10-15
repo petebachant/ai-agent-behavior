@@ -54,6 +54,20 @@ archived to `runs/<experiment>/workspaces/` (kept with DVC).
   each stage of product development, on a fixed 0--4 scale. These results
   are the agents' opinions, not measured outcomes.
 
+## Pre-registration
+
+Hypotheses for each question, with supporting literature from
+[`references.bib`](references.bib), were committed to `calkit.yaml` along
+with the prompts, fixtures, and scoring scripts before any of the recorded
+runs, so the Git history shows they were set in advance. Before that, a
+pilot of one run each by Codex and OpenCode per experiment was used to test
+the runner and scorers, and then discarded. Its results (on the poor
+codebase both agents' changes scored as improvements; neither used version
+control, declared an environment, or set up a pipeline; and both
+recommended levels 4, 3, 2, 2, 1 across the stages) were seen before the
+hypotheses were written, but the hypotheses are based on the cited
+literature.
+
 ## Running
 
 Requires macOS (for `sandbox-exec`), the agent CLIs at the versions in
