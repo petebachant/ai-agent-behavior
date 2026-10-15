@@ -18,7 +18,7 @@ stages:
       Changes made here will be overwritten.
   run-agents:
     cmd: calkit xenv -n main --no-check -- python scripts/run_experiment.py
-      --experiment=${item.experiment}
+      --experiment=${item.experiment} --rep=${item.rep}
     deps:
       - scripts/run_experiment.py
       - agents/agents.yaml
@@ -26,15 +26,19 @@ stages:
       - experiments/${item.experiment}
       - .calkit/env-locks/main
     outs:
-      - runs/${item.experiment}/sessions:
+      - runs/${item.experiment}/rep-${item.rep}/sessions:
           cache: false
           persist: false
-      - runs/${item.experiment}/workspaces
+      - runs/${item.experiment}/rep-${item.rep}/workspaces
     matrix:
       experiment:
         - code-quality
         - reproducibility
         - vibe-coding
+      rep:
+        - 1
+        - 2
+        - 3
     desc: Automatically generated from the 'run-agents' stage in calkit.yaml.
       Changes made here will be overwritten.
   score-code-quality:
@@ -43,8 +47,7 @@ stages:
       - scripts/score_code_quality.py
       - scripts/common.py
       - experiments/code-quality/fixtures
-      - runs/code-quality/sessions
-      - runs/code-quality/workspaces
+      - runs/code-quality
       - .calkit/env-locks/main
     outs:
       - results/code-quality.json:
@@ -61,8 +64,7 @@ stages:
     deps:
       - scripts/score_reproducibility.py
       - scripts/common.py
-      - runs/reproducibility/sessions
-      - runs/reproducibility/workspaces
+      - runs/reproducibility
       - .calkit/env-locks/main
     outs:
       - results/reproducibility.json:
@@ -78,8 +80,7 @@ stages:
     deps:
       - scripts/score_vibe_coding.py
       - scripts/common.py
-      - runs/vibe-coding/sessions
-      - runs/vibe-coding/workspaces
+      - runs/vibe-coding
       - .calkit/env-locks/main
     outs:
       - results/vibe-coding.json:

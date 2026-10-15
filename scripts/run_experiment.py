@@ -9,9 +9,11 @@ run's own directory unreadable. Nothing in the workspace, prompt, or
 environment refers to the experiment, so agents work as they would on a
 normal request.
 
-For every run, the agent's full session (its streamed output plus its own
-native session files) is saved under ``runs/<experiment>/sessions`` and the
-final state of the workspace under ``runs/<experiment>/workspaces``.
+One invocation runs one repetition of an experiment: every agent on every
+condition, in parallel. For each run, the agent's full session (its streamed
+output plus its own native session files) is saved under
+``runs/<experiment>/rep-<n>/sessions`` and the final state of the workspace
+under ``runs/<experiment>/rep-<n>/workspaces``.
 """
 
 import argparse
@@ -363,11 +365,11 @@ def run_once(
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--experiment", required=True)
+    parser.add_argument("--rep", type=int, required=True)
     parser.add_argument("--jobs", type=int, default=6)
     parser.add_argument("--max-attempts", type=int, default=3)
-    # For smoke tests: a subset of agents, fewer reps, and another output dir
+    # For smoke tests: a subset of agents and another output dir
     parser.add_argument("--agents", nargs="+")
-    parser.add_argument("--reps", type=int)
     parser.add_argument("--out", type=Path)
     args = parser.parse_args()
 
@@ -391,22 +393,23 @@ def main() -> None:
         if auth.exists():
             SECRETS.extend(_string_leaves(json.loads(auth.read_text())))
     git_name, git_email = git_identity()
-    out_dir = args.out or REPO / "runs" / args.experiment
-    reps = args.reps or cfg["reps"]
+    rep = args.rep
+    out_dir = args.out or REPO / "runs" / args.experiment / f"rep-{rep}"
     timeout_s = cfg.get("timeout_minutes", 30) * 60
 
     jobs = []
     for cond, fixture in cfg["conditions"].items():
         for agent_name in agents:
-            for rep in range(1, reps + 1):
-                jobs.append((cond, fixture, agent_name, rep))
+            jobs.append((cond, fixture, agent_name))
 
     def do_job(job):
-        cond, fixture, agent_name, rep = job
+        cond, fixture, agent_name = job
         agent = agents[agent_name]
-        run_id = f"{cond}/{agent_name}/rep-{rep}"
-        session_dir = out_dir / "sessions" / run_id
-        workspace_tar = out_dir / "workspaces" / f"{run_id}.tar.gz"
+        run_id = f"rep-{rep}/{cond}/{agent_name}"
+        session_dir = out_dir / "sessions" / cond / agent_name
+        workspace_tar = (
+            out_dir / "workspaces" / cond / f"{agent_name}.tar.gz"
+        )
         attempts = []
         for attempt in range(1, args.max_attempts + 1):
             log(f"[{args.experiment}] {run_id} attempt {attempt} starting")

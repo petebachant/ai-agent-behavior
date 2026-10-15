@@ -28,12 +28,15 @@ def load_runs(experiment: str) -> list[dict]:
     """Metadata for each run of an experiment, with paths to its files."""
     base = REPO / "runs" / experiment
     runs = []
-    for meta_path in sorted((base / "sessions").rglob("meta.json")):
+    for meta_path in sorted(base.glob("rep-*/sessions/*/*/meta.json")):
         meta = json.loads(meta_path.read_text())
-        run_id = f"{meta['condition']}/{meta['agent']}/rep-{meta['rep']}"
-        meta["run_id"] = run_id
+        rep_dir = base / f"rep-{meta['rep']}"
+        cond, agent = meta["condition"], meta["agent"]
+        meta["run_id"] = f"rep-{meta['rep']}/{cond}/{agent}"
         meta["session_dir"] = meta_path.parent
-        meta["workspace_tar"] = base / "workspaces" / f"{run_id}.tar.gz"
+        meta["workspace_tar"] = (
+            rep_dir / "workspaces" / cond / f"{agent}.tar.gz"
+        )
         meta["ok"] = meta["exit_code"] == 0 and not meta["timed_out"]
         runs.append(meta)
     return runs

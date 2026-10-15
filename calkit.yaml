@@ -108,6 +108,7 @@ pipeline:
       script_path: scripts/run_experiment.py
       args:
         - --experiment={experiment}
+        - --rep={rep}
       environment: main
       iterate_over:
         - arg_name: experiment
@@ -115,14 +116,21 @@ pipeline:
             - code-quality
             - reproducibility
             - vibe-coding
+        # Repetitions are separate stages, so raising 'stop' runs only the
+        # new ones
+        - arg_name: rep
+          values:
+            - range:
+                start: 1
+                stop: 4
       inputs:
         - agents/agents.yaml
         - agents/sandbox.sb
         - experiments/{experiment}
       outputs:
-        - path: runs/{experiment}/sessions
+        - path: runs/{experiment}/rep-{rep}/sessions
           storage: git
-        - runs/{experiment}/workspaces
+        - runs/{experiment}/rep-{rep}/workspaces
     score-code-quality:
       kind: python-script
       script_path: scripts/score_code_quality.py
@@ -130,8 +138,7 @@ pipeline:
       inputs:
         - scripts/common.py
         - experiments/code-quality/fixtures
-        - runs/code-quality/sessions
-        - runs/code-quality/workspaces
+        - runs/code-quality
       outputs:
         - path: results/code-quality.json
           storage: git
@@ -143,8 +150,7 @@ pipeline:
       environment: main
       inputs:
         - scripts/common.py
-        - runs/reproducibility/sessions
-        - runs/reproducibility/workspaces
+        - runs/reproducibility
       outputs:
         - path: results/reproducibility.json
           storage: git
@@ -156,8 +162,7 @@ pipeline:
       environment: main
       inputs:
         - scripts/common.py
-        - runs/vibe-coding/sessions
-        - runs/vibe-coding/workspaces
+        - runs/vibe-coding
       outputs:
         - path: results/vibe-coding.json
           storage: git
