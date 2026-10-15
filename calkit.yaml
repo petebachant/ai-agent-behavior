@@ -79,10 +79,11 @@ questions:
       structure, so some drop is expected from adding features at all. The
       hidden acceptance checks passed in {poor_working:.0%} of runs on the
       poor codebase and {good_working:.0%} on the good one. Each agent ran
-      {per_agent:g} times per codebase, with one model each. An earlier set
-      of the first three repetitions, discarded because the good fixture
-      held stray Python cache files (commit d0515d5), also found the poor
-      codebase made better in most runs.
+      {per_agent:g} times per codebase, with one model each. Two earlier
+      sets of the first three repetitions also found the poor codebase made
+      better in most runs: one discarded because the good fixture held
+      stray Python cache files (commit d0515d5), and one redone when the
+      runner began archiving each run's full tree (commit da53c59).
   - name: unprompted-tests
     question: >-
       Do AI agents write tests when the user doesn't ask for them?
@@ -133,11 +134,13 @@ questions:
           per_agent: summary.good.by_agent.claude.n_runs
     notes: >-
       Each agent ran {per_agent:g} times per codebase, so one run moves an
-      agent's share by a large step. An earlier set of the first three
-      repetitions, discarded because the good fixture held stray Python
-      cache files (commit d0515d5), had at least half of runs on the good
-      codebase adding tests, so whether that part of the hypothesis holds
-      is sensitive to sampling. Codex ran the existing tests in
+      agent's share by a large step. Whether at least half of runs add
+      tests on the good codebase is sensitive to sampling: of two earlier
+      sets of the first three repetitions, the one discarded because the
+      good fixture held stray Python cache files (commit d0515d5) had two
+      thirds of runs adding tests, and the one redone when the runner began
+      archiving each run's full tree (commit da53c59) had fewer than half.
+      Codex ran the existing tests in
       {codex_ran:.0%} of its runs on the good codebase.
   - name: reproducibility
     question: >-
@@ -191,6 +194,10 @@ questions:
           venv: summary.default.overall.frac_venv_created
           n_nogit: summary.no-git.overall.n_runs
           nogit_practices: summary.no-git.overall.mean_n_practices
+    notes: >-
+      Runs that didn't save a script made the figure with code passed
+      straight to the interpreter on the command line (`Rscript -e`), so
+      nothing in the workspace records how it was made.
   - name: missing-git
     question: >-
       If Git isn't installed, will AI agents suggest installing it?
@@ -206,6 +213,12 @@ questions:
         suggest or attempt installing it, and on the machine with Git,
         {default_tried:.0%} of runs used it. The missing Git went unnoticed
         rather than being worked around, consistent with the hypothesis.
+      elif suggested == 0 and mentioned == 0: >-
+        No. None of the {n} runs on a machine without Git suggested or
+        attempted installing it, or mentioned Git at all. {tried:.0%} of
+        runs did run a Git command, and when it failed they carried on
+        without remarking on it. On the machine with Git, {default_tried:.0%}
+        of runs used it. This is consistent with the hypothesis.
       elif suggested < 0.25: >-
         Rarely, as hypothesized: {suggested:.0%} of {n} runs on a machine
         without Git suggested or attempted installing it, while
@@ -271,10 +284,11 @@ questions:
           claude_mvp: summary.by_agent.claude.mvp.median
           codex_mvp: summary.by_agent.codex.mvp.median
           opencode_mvp: summary.by_agent.opencode.mvp.median
+          per_agent: summary.by_agent.claude.prototype.n
     notes: >-
-      The per-run check of the hypothesized shape was added to
-      scripts/score_vibe_coding.py after the runs, to make the
-      pre-registered wording testable.
+      Each agent made {per_agent:g} recommendations. The per-run check of
+      the hypothesized shape was added to scripts/score_vibe_coding.py
+      after the runs, to make the pre-registered wording testable.
 
 requirements:
   - kind: app
