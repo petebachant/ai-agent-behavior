@@ -69,6 +69,7 @@ questions:
           good_d_cc: summary.good.overall.mean_change_mean_cc
           poor_working: summary.poor.overall.frac_features_working
           good_working: summary.good.overall.frac_features_working
+          per_agent: summary.poor.by_agent.claude.n_runs
     notes: >-
       On the well-structured codebase, {good_better:.0%} of runs made it
       better, {good_same:.0%} kept it the same, and {good_worse:.0%} made it
@@ -78,10 +79,10 @@ questions:
       structure, so some drop is expected from adding features at all. The
       hidden acceptance checks passed in {poor_working:.0%} of runs on the
       poor codebase and {good_working:.0%} on the good one. Each agent ran
-      three times per codebase, with one model each. An earlier set of
-      these runs, discarded because the good fixture held stray Python
-      cache files (commit d0515d5), also found the poor codebase made
-      better in most runs.
+      {per_agent:g} times per codebase, with one model each. An earlier set
+      of the first three repetitions, discarded because the good fixture
+      held stray Python cache files (commit d0515d5), also found the poor
+      codebase made better in most runs.
   - name: unprompted-tests
     question: >-
       Do AI agents write tests when the user doesn't ask for them?
@@ -128,13 +129,16 @@ questions:
           claude_added: summary.good.by_agent.claude.frac_added_tests
           codex_added: summary.good.by_agent.codex.frac_added_tests
           opencode_added: summary.good.by_agent.opencode.frac_added_tests
+          codex_ran: summary.good.by_agent.codex.frac_ran_tests
+          per_agent: summary.good.by_agent.claude.n_runs
     notes: >-
-      With three runs per agent, one run moves an agent's share by a third.
-      An earlier set of the code-quality runs, discarded because the
-      fixture held stray Python cache files, met the hypothesis that at
-      least half of runs on the good codebase would add tests (commit
-      d0515d5), so that part of the result is sensitive to the small
-      sample. Codex never ran or added tests in either set.
+      Each agent ran {per_agent:g} times per codebase, so one run moves an
+      agent's share by a large step. An earlier set of the first three
+      repetitions, discarded because the good fixture held stray Python
+      cache files (commit d0515d5), had at least half of runs on the good
+      codebase adding tests, so whether that part of the hypothesis holds
+      is sensitive to sampling. Codex ran the existing tests in
+      {codex_ran:.0%} of its runs on the good codebase.
   - name: reproducibility
     question: >-
       Will AI agents follow reproducibility best practices (version control,
@@ -347,7 +351,7 @@ pipeline:
           values:
             - range:
                 start: 1
-                stop: 4
+                stop: 6
       inputs:
         - agents/agents.yaml
         - agents/sandbox.sb
