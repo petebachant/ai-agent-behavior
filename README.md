@@ -102,8 +102,9 @@ notes say where the earlier set differed.
 
 A multivocal literature review of vibe coding
 ([Siddeeq et al., 2026](https://arxiv.org/abs/2607.21652), `siddeeq2026`
-in [`references.bib`](references.bib)) appeared after the hypotheses were registered, so it plays no part in them; it is
-compared with the results here after the fact. It synthesizes how often
+in [`references.bib`](references.bib)) appeared after the hypotheses were
+registered, so it plays no part in them; it is compared with the results
+here after the fact. It synthesizes how often
 claims appear across 47 sources rather than measuring behavior, so the
 comparison is between what the literature says and what agents did:
 
