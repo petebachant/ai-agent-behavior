@@ -98,6 +98,33 @@ files (`__pycache__/`) that aren't part of it in Git; the answers in
 `calkit.yaml` read their numbers from the current results, and its
 notes say where the earlier set differed.
 
+## Related work
+
+A multivocal literature review of vibe coding
+([Siddeeq et al., 2026](https://arxiv.org/abs/2607.21652), `siddeeq2026`
+in [`references.bib`](references.bib)) appeared after the hypotheses were registered, so it plays no part in them; it is
+compared with the results here after the fact. It synthesizes how often
+claims appear across 47 sources rather than measuring behavior, so the
+comparison is between what the literature says and what agents did:
+
+- **Vibe coding by stage.** The review finds the evidence strongest for
+  prototyping and weakest for production and safety-critical use, and
+  advises scaling verification with the intended use of the code. The
+  agents' recommendations follow the same shape, though they may simply
+  echo the same literature rather than add independent evidence.
+- **Tests.** Validation and testing pipelines are the safeguard the
+  reviewed sources recommend most, but the agents added or ran tests
+  mostly when the codebase already had them, leaving that safeguard to
+  the user otherwise.
+- **Reproducibility.** The review finds reproducibility, and data and ML
+  work, among the least studied areas, and recommends recording prompts
+  and model versions. The `reproducibility` experiment adds evidence
+  there, with agents adopting none of the practices unprompted.
+- **Code quality.** The review calls maintainability a conditional
+  outcome and long-term quality under-studied. The `code-quality`
+  experiment measures only one change with static metrics, so it speaks
+  to the former but not the latter.
+
 ## Running
 
 Requires macOS (for `sandbox-exec`), the agent CLIs at the versions in
