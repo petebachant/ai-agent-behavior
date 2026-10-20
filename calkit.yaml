@@ -289,6 +289,24 @@ questions:
       Each agent made {per_agent:g} recommendations. The per-run check of
       the hypothesized shape was added to scripts/score_vibe_coding.py
       after the runs, to make the pre-registered wording testable.
+  - name: multi-agent
+    question: >-
+      When do multi-agent workflows produce better results more quickly?
+    hypothesis: >-
+      Only when the work splits into parts that don't depend on each other,
+      and then by being quicker rather than better. Multi-agent systems
+      gain most on parallelizable tasks and lose on sequential ones
+      [@hadfield2025; @kim2025], with diminishing returns once a single
+      agent is already capable [@kim2025]; when parts depend on each other,
+      subagents make conflicting implicit decisions [@yan2025; @yan2026],
+      and misalignment between agents is a leading cause of multi-agent
+      failure [@cemri2025]. Measured by hidden-check pass rate (quality)
+      and wall time (speed), pooling the three agents: on the independent
+      task, asking for subagents will lower the median wall time, with the
+      mean pass rate within 5 percentage points of the single agent's; on
+      the coupled task, it will not lower the median wall time, and the
+      mean pass rate will be lower. In both tasks, runs with subagents will
+      use more tokens.
 
 requirements:
   - kind: app
@@ -375,6 +393,35 @@ pipeline:
           storage: git
         - runs/{experiment}/rep-{rep}/workspaces
         - runs/{experiment}/rep-{rep}/trees
+    run-multi-agent:
+      kind: python-script
+      description: >-
+        Run each agent with and without subagents on the multi-agent
+        experiment's two tasks, saving full sessions and final workspaces.
+      script_path: scripts/run_multi_agent.py
+      args:
+        - --rep={rep}
+      environment: main
+      iterate_over:
+        - arg_name: rep
+          values:
+            - range:
+                start: 1
+                stop: 6
+      # The hidden checks and reference implementations aren't inputs, so
+      # changing them rescores without rerunning agents
+      inputs:
+        - scripts/run_experiment.py
+        - agents/agents.yaml
+        - agents/sandbox.sb
+        - experiments/multi-agent/experiment.yaml
+        - experiments/multi-agent/prompts
+        - experiments/multi-agent/fixtures
+      outputs:
+        - path: runs/multi-agent/rep-{rep}/sessions
+          storage: git
+        - runs/multi-agent/rep-{rep}/workspaces
+        - runs/multi-agent/rep-{rep}/trees
     score-code-quality:
       kind: python-script
       script_path: scripts/score_code_quality.py
