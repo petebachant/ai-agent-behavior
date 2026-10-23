@@ -307,10 +307,44 @@ questions:
       the coupled task, it will not lower the median wall time, and the
       mean pass rate will be lower. In both tasks, runs with subagents will
       use more tokens.
+  - name: use-calkit
+    question: >-
+      Will AI agents work reproducibly if you simply tell them to use Calkit?
+    hypothesis: >-
+      Partly: they will use Calkit but stop short of fully reproducible
+      work. Given the everyday analysis request from the reproducibility
+      question plus "Use Calkit." on a machine that has Calkit but not its
+      agent skills, more than half of runs will set up a Calkit pipeline,
+      but fewer than half will follow all four practices of the
+      reproducibility question, and fewer than a quarter will be fully
+      reproducible (all four practices, with the pipeline run and current,
+      the figure made by the pipeline, and everything committed). Calkit is
+      niche, and models know least about what their training data mentions
+      least [@kandpal2023], so agents will learn it from its CLI help as
+      they go, which documentation can make possible [@hsieh2023]; and
+      since agents didn't commit unprompted in the reproducibility
+      experiment, committing is the step most likely to be missed.
+  - name: calkit-skills
+    question: >-
+      Does installing Calkit's agent skills help agents work reproducibly
+      when told to use Calkit?
+    hypothesis: >-
+      Yes, moderately. With the skills installed as Calkit's docs say for
+      each agent, the share of runs following all four practices will be at
+      least 15 percentage points higher than with Calkit alone, and more
+      runs will be fully reproducible, in line with the average gain of
+      about 16 points that curated skills gave agents across tasks
+      [@li2026] and with documentation in context improving tool use
+      [@hsieh2023]. More than half of runs will load at least one of the
+      skills.
 
 requirements:
   - kind: app
     name: sandbox-exec
+  - kind: app
+    name: uv
+    version_spec: "==0.12.7"
+    description: Installs Calkit into each use-calkit run's fresh home.
   - kind: app
     name: claude
     version_spec: "==2.1.300"
@@ -422,6 +456,33 @@ pipeline:
           storage: git
         - runs/multi-agent/rep-{rep}/workspaces
         - runs/multi-agent/rep-{rep}/trees
+    run-use-calkit:
+      kind: python-script
+      description: >-
+        Run each agent told to use Calkit, with Calkit installed and with or
+        without its agent skills, saving full sessions and final
+        workspaces.
+      script_path: scripts/run_use_calkit.py
+      args:
+        - --rep={rep}
+      environment: main
+      iterate_over:
+        - arg_name: rep
+          values:
+            - range:
+                start: 1
+                stop: 6
+      inputs:
+        - scripts/run_experiment.py
+        - agents/agents.yaml
+        - agents/sandbox.sb
+        - experiments/use-calkit
+        - experiments/reproducibility/fixtures/default
+      outputs:
+        - path: runs/use-calkit/rep-{rep}/sessions
+          storage: git
+        - runs/use-calkit/rep-{rep}/workspaces
+        - runs/use-calkit/rep-{rep}/trees
     score-code-quality:
       kind: python-script
       script_path: scripts/score_code_quality.py
@@ -475,4 +536,17 @@ pipeline:
         - path: results/multi-agent.json
           storage: git
         - path: figures/multi-agent.png
+          storage: git
+    score-use-calkit:
+      kind: python-script
+      script_path: scripts/score_use_calkit.py
+      environment: main
+      inputs:
+        - scripts/common.py
+        - scripts/score_reproducibility.py
+        - runs/use-calkit
+      outputs:
+        - path: results/use-calkit.json
+          storage: git
+        - path: figures/use-calkit.png
           storage: git
