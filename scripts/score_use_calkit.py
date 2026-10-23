@@ -155,7 +155,11 @@ def tool_calls(run: dict) -> list[str]:
         elif run["cli"] == "codex" and kind == "item.completed":
             item = event.get("item", {})
             if item.get("type") not in ("agent_message", "reasoning"):
-                calls.append(json.dumps(item))
+                # Without the output, e.g., a SKILL.md naming other skills
+                calls.append(json.dumps({
+                    k: v for k, v in item.items()
+                    if k not in ("aggregated_output", "output", "result")
+                }))
         elif run["cli"] == "opencode" and kind == "tool_use":
             state = event.get("part", {}).get("state", {})
             calls.append(json.dumps(state.get("input", {})))

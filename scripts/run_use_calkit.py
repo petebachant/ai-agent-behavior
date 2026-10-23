@@ -14,6 +14,11 @@ The installs are made by the runner before the agent starts and are left
 out of the archived run trees, since they're the same in every run and
 large.
 
+The sandbox also lets agents write to DVC's machine-wide cache dir
+(``/Library/Caches/dvc``), which Calkit uses through DVC and every user
+can write to on a normal machine. DVC keeps a subdirectory there per repo
+path, and each run's path is unique, so runs don't share anything there.
+
 Kept separate from ``run_experiment.py`` so changing it doesn't invalidate
 the other experiments' cached runs.
 """
@@ -36,6 +41,7 @@ import run_experiment as rx
 
 EXPERIMENT = "use-calkit"
 SKILLS_PREFIX = "calkit-"
+DVC_SITE_CACHE = "/Library/Caches/dvc"
 # Large, identical in every run, and made by the runner, so not archived
 PREINSTALLED = [
     Path(".local/share/uv/tools/calkit-python"),
@@ -147,6 +153,18 @@ def archive_run_tree(run_root: Path, home: Path, dest: Path) -> None:
 
 _archive_run_tree = rx.archive_run_tree
 rx.archive_run_tree = archive_run_tree
+
+
+def render_profile(run_root: Path, read_only: list[Path],
+                   hide_commands: list[str]) -> str:
+    # The last matching rule wins, so this overrides the profile's denial
+    return _render_profile(run_root, read_only, hide_commands) + (
+        f'\n(allow file-write* (subpath "{DVC_SITE_CACHE}"))\n'
+    )
+
+
+_render_profile = rx.render_profile
+rx.render_profile = render_profile
 
 
 def main() -> None:
