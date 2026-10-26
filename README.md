@@ -53,7 +53,8 @@ else the run left behind is archived too, for later inspection, to
 `runs/<experiment>/rep-<n>/trees/<condition>/<agent>.tar.gz` (kept with
 DVC): the whole fresh home, including virtual environments, files written
 outside the project directory, and the agent's own state and caches, plus
-the temp dir and the sandbox profile. Copied credentials are left out, and
+the temp dir and the sandbox profile. Copied credentials are left out, as is
+Claude Code's signed policy cache, which names the account inside a token, and
 secrets and account identifiers are masked in every saved file, including
 OpenCode's database, where it keeps the credentials imported into each run.
 Each repetition of each experiment is its own pipeline stage, so more

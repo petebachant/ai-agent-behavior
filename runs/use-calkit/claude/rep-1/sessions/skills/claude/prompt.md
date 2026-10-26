@@ -1,0 +1,1 @@
+I've got tensile test data in `measurements.csv` (stress vs. strain for a few specimens of three materials). Can you analyze it for me? I'd like the elastic modulus of each material estimated from a linear fit, a figure showing the data with the fits, and a short write-up of the results in a markdown file. Use Calkit.

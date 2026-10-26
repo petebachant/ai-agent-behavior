@@ -71,6 +71,10 @@ SYSTEM_BIN_DIRS = [
 SECRETS: list[str] = []
 # Credential files copied into a fresh home, left out of archives
 AUTH_FILES = [Path(".codex/auth.json")]
+# Files naming the account in encoded form that masking can't reach, left
+# out of archives: Claude Code's signed policy cache holds the account and
+# workspace IDs inside a token
+ACCOUNT_FILES = [Path(".claude/policy-limits.json.signature.json")]
 # OpenCode keeps credentials in its database, so they're imported into each
 # fresh home from 'opencode auth export' and scrubbed from what's archived
 OPENCODE_CREDENTIALS: str | None = None
@@ -371,11 +375,14 @@ def archive_run_tree(run_root: Path, home: Path, dest: Path) -> None:
 
     This is the whole fresh home (the project with any virtual environments,
     files written next to it, the agent's own state and caches) and the temp
-    dir, plus the sandbox profile. Only copied credentials and the
-    runner-made directory of command symlinks are left out.
+    dir, plus the sandbox profile. Only copied credentials, files that
+    name the account, and the runner-made directory of command symlinks are
+    left out.
     """
     dest.parent.mkdir(parents=True, exist_ok=True)
-    skip = {run_root / "bin"} | {home / f for f in AUTH_FILES}
+    skip = {run_root / "bin"} | {
+        home / f for f in AUTH_FILES + ACCOUNT_FILES
+    }
 
     def filt(info: tarfile.TarInfo):
         path = run_root.parent / info.name
