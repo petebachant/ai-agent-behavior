@@ -58,7 +58,10 @@ secrets and account identifiers are masked in every saved file, including
 OpenCode's database, where it keeps the credentials imported into each run.
 Each repetition of each experiment is its own pipeline stage, so more
 repetitions can be added by raising the range in `calkit.yaml` without
-rerunning the existing ones.
+rerunning the existing ones. In the `multi-agent` and `use-calkit`
+experiments each agent also has its own stage per repetition, with its runs
+under `runs/<experiment>/<agent>/rep-<n>/`, so a problem with one agent's
+service, such as a usage limit, doesn't hold up the others.
 
 **Experiments.**
 

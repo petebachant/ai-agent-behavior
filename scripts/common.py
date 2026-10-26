@@ -28,9 +28,13 @@ def load_runs(experiment: str) -> list[dict]:
     """Metadata for each run of an experiment, with paths to its files."""
     base = REPO / "runs" / experiment
     runs = []
-    for meta_path in sorted(base.glob("rep-*/sessions/*/*/meta.json")):
+    # Either runs/<experiment>/rep-<n>/... or, for experiments run one
+    # agent per stage, runs/<experiment>/<agent>/rep-<n>/...
+    for meta_path in sorted(base.glob("rep-*/sessions/*/*/meta.json")) + sorted(
+        base.glob("*/rep-*/sessions/*/*/meta.json")
+    ):
         meta = json.loads(meta_path.read_text())
-        rep_dir = base / f"rep-{meta['rep']}"
+        rep_dir = meta_path.parents[3]
         cond, agent = meta["condition"], meta["agent"]
         meta["run_id"] = f"rep-{meta['rep']}/{cond}/{agent}"
         meta["session_dir"] = meta_path.parent

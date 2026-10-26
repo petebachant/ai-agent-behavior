@@ -435,8 +435,17 @@ pipeline:
       script_path: scripts/run_multi_agent.py
       args:
         - --rep={rep}
+        - --agents={agent}
+        - --out=runs/multi-agent/{agent}/rep-{rep}
       environment: main
+      # One stage per agent and repetition, so one agent's failures (e.g.,
+      # hitting a usage limit) don't hold up the others
       iterate_over:
+        - arg_name: agent
+          values:
+            - claude
+            - codex
+            - opencode
         - arg_name: rep
           values:
             - range:
@@ -452,10 +461,10 @@ pipeline:
         - experiments/multi-agent/prompts
         - experiments/multi-agent/fixtures
       outputs:
-        - path: runs/multi-agent/rep-{rep}/sessions
+        - path: runs/multi-agent/{agent}/rep-{rep}/sessions
           storage: git
-        - runs/multi-agent/rep-{rep}/workspaces
-        - runs/multi-agent/rep-{rep}/trees
+        - runs/multi-agent/{agent}/rep-{rep}/workspaces
+        - runs/multi-agent/{agent}/rep-{rep}/trees
     run-use-calkit:
       kind: python-script
       description: >-
@@ -465,8 +474,15 @@ pipeline:
       script_path: scripts/run_use_calkit.py
       args:
         - --rep={rep}
+        - --agents={agent}
+        - --out=runs/use-calkit/{agent}/rep-{rep}
       environment: main
       iterate_over:
+        - arg_name: agent
+          values:
+            - claude
+            - codex
+            - opencode
         - arg_name: rep
           values:
             - range:
@@ -479,10 +495,10 @@ pipeline:
         - experiments/use-calkit
         - experiments/reproducibility/fixtures/default
       outputs:
-        - path: runs/use-calkit/rep-{rep}/sessions
+        - path: runs/use-calkit/{agent}/rep-{rep}/sessions
           storage: git
-        - runs/use-calkit/rep-{rep}/workspaces
-        - runs/use-calkit/rep-{rep}/trees
+        - runs/use-calkit/{agent}/rep-{rep}/workspaces
+        - runs/use-calkit/{agent}/rep-{rep}/trees
     score-code-quality:
       kind: python-script
       script_path: scripts/score_code_quality.py
