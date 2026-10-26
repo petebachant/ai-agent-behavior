@@ -30,6 +30,7 @@ import os
 import re
 import shutil
 import signal
+import sqlite3
 import subprocess
 import sys
 import tarfile
@@ -69,7 +70,11 @@ SYSTEM_BIN_DIRS = [
 ]
 SECRETS: list[str] = []
 # Credential files copied into a fresh home, left out of archives
-AUTH_FILES = [Path(".codex/auth.json"), Path(".local/share/opencode/auth.json")]
+AUTH_FILES = [Path(".codex/auth.json")]
+# OpenCode keeps credentials in its database, so they're imported into each
+# fresh home from 'opencode auth export' and scrubbed from what's archived
+OPENCODE_CREDENTIALS: str | None = None
+OPENCODE_DB = Path(".local/share/opencode/opencode.db")
 _print_lock = threading.Lock()
 # Run dirs and agent processes in flight, cleaned up if the runner is killed
 # so copied credentials don't outlive it
@@ -165,12 +170,19 @@ class Agent:
             shutil.copy(REAL_HOME / ".codex" / "auth.json", codex_home)
             env["CODEX_HOME"] = str(codex_home)
         elif self.cli == "opencode":
-            data = home / ".local" / "share" / "opencode"
-            data.mkdir(parents=True)
-            shutil.copy(
-                REAL_HOME / ".local" / "share" / "opencode" / "auth.json", data
-            )
             env["OPENCODE_DISABLE_AUTOUPDATE"] = "1"
+            # Use the model catalog built into this version rather than
+            # fetching the latest, so model metadata is fixed by the version
+            env["OPENCODE_DISABLE_MODELS_FETCH"] = "1"
+            subprocess.run(
+                [str(self.real_bin), "auth", "import", "--standalone"],
+                input=OPENCODE_CREDENTIALS,
+                cwd=home,
+                env={**env, "PATH": "/usr/bin:/bin"},
+                capture_output=True,
+                text=True,
+                check=True,
+            )
         return bin_dir
 
     def command(self, prompt: str) -> list[str]:
@@ -201,6 +213,9 @@ class Agent:
             return [
                 "opencode",
                 "run",
+                # A private server per run, instead of the machine's shared
+                # background service, which runs outside the sandbox
+                "--standalone",
                 "--format",
                 "json",
                 "--model",
@@ -223,18 +238,28 @@ class Agent:
             if src.exists():
                 copy_text_tree(src, dest / "codex-sessions")
         elif self.cli == "opencode":
-            session_ids = set()
-            for line in transcript.read_text().splitlines():
-                try:
-                    event = json.loads(line)
-                except json.JSONDecodeError:
-                    continue
-                if isinstance(event, dict) and event.get("sessionID"):
-                    session_ids.add(event["sessionID"])
+            # Every session, including subagents' child sessions, which the
+            # transcript and 'opencode session list' leave out
+            db = home / OPENCODE_DB
+            sessions = []
+            if db.exists():
+                with sqlite3.connect(f"file:{db}?mode=ro", uri=True) as con:
+                    sessions = [
+                        {"id": sid, "parent_id": parent}
+                        for sid, parent in con.execute(
+                            "SELECT id, parent_id FROM session_v2 "
+                            "ORDER BY time_created"
+                        )
+                    ]
             dest.mkdir(parents=True, exist_ok=True)
-            for sid in sorted(session_ids):
-                out = run_cmd(["opencode", "export", sid])
-                (dest / f"opencode-export-{sid}.json").write_text(
+            (dest / "opencode-sessions.json").write_text(
+                json.dumps(sessions, indent=2)
+            )
+            for s in sessions:
+                out = run_cmd(
+                    ["opencode", "session", "export", "--standalone", s["id"]]
+                )
+                (dest / f"opencode-export-{s['id']}.json").write_text(
                     scrub(out.stdout)
                 )
 
@@ -468,6 +493,8 @@ def run_once(
         return {
             "exit_code": exit_code,
             "timed_out": timed_out,
+            # A run that timed out without output never got started
+            "produced_output": transcript.stat().st_size > 0,
             "started": start.isoformat(),
             "ended": end.isoformat(),
             "duration_s": round((end - start).total_seconds(), 1),
@@ -519,19 +546,7 @@ def main() -> None:
         for name, a in agents_cfg.items()
         if not args.agents or name in args.agents
     }
-    SECRETS.extend(
-        s for s in [os.environ.get("CLAUDE_CODE_OAUTH_TOKEN")] if s
-    )
-    for auth in [
-        REAL_HOME / ".codex" / "auth.json",
-        REAL_HOME / ".local" / "share" / "opencode" / "auth.json",
-    ]:
-        if auth.exists():
-            leaves = _string_leaves(json.loads(auth.read_text()))
-            SECRETS.extend(leaves)
-            # Account identifiers inside tokens, which CLIs also write to
-            # their session files, e.g., Codex's creator_user_id
-            SECRETS.extend(i for t in leaves for i in _token_identifiers(t))
+    load_secrets()
     git_name, git_email = git_identity()
     rep = args.rep
     out_dir = args.out or REPO / "runs" / args.experiment / f"rep-{rep}"
@@ -587,7 +602,9 @@ def main() -> None:
                 f"({result['duration_s']} s)"
             )
             # Retry only failures of the CLI itself, e.g., API errors
-            if result["exit_code"] == 0 or result["timed_out"]:
+            if result["exit_code"] == 0 or (
+                result["timed_out"] and result["produced_output"]
+            ):
                 break
         meta = {
             "experiment": args.experiment,
@@ -616,6 +633,33 @@ def main() -> None:
     # isn't cached as complete; the sessions are kept for inspection
     if failed:
         sys.exit(1)
+
+
+def load_secrets() -> None:
+    """Collect the credentials to scrub from everything saved."""
+    global OPENCODE_CREDENTIALS
+    SECRETS.extend(
+        s for s in [os.environ.get("CLAUDE_CODE_OAUTH_TOKEN")] if s
+    )
+    auth = REAL_HOME / ".codex" / "auth.json"
+    if auth.exists():
+        leaves = _string_leaves(json.loads(auth.read_text()))
+        SECRETS.extend(leaves)
+        # Account identifiers inside tokens, which CLIs also write to
+        # their session files, e.g., Codex's creator_user_id
+        SECRETS.extend(i for t in leaves for i in _token_identifiers(t))
+    if shutil.which("opencode"):
+        out = subprocess.run(
+            ["opencode", "auth", "export", "--standalone"],
+            capture_output=True, text=True, check=True,
+        )
+        OPENCODE_CREDENTIALS = out.stdout
+        # Keys, tokens, and account details such as the email, but not
+        # the server's URL
+        SECRETS.extend(
+            s for s in _string_leaves(json.loads(out.stdout))
+            if not s.startswith("http")
+        )
 
 
 IDENTIFIER_CLAIM = re.compile(

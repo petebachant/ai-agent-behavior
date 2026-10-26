@@ -76,7 +76,8 @@ def read_session(run: dict) -> dict:
             part = event.get("part", {})
             if kind == "text":
                 texts.append(part.get("text", ""))
-            elif kind == "tool_use" and part.get("tool") == "bash":
+            # 'bash' before OpenCode 2, 'shell' since
+            elif kind == "tool_use" and part.get("tool") in ("bash", "shell"):
                 state = part.get("state", {})
                 commands.append(state.get("input", {}).get("command", ""))
     return {"texts": texts, "commands": commands}

@@ -187,19 +187,7 @@ def main() -> None:
         (rx.REPO / "agents" / "agents.yaml").read_text()
     )
     prompt = (exp_dir / cfg["prompt"]).read_text().strip()
-    rx.SECRETS.extend(
-        s for s in [os.environ.get("CLAUDE_CODE_OAUTH_TOKEN")] if s
-    )
-    for auth in [
-        rx.REAL_HOME / ".codex" / "auth.json",
-        rx.REAL_HOME / ".local" / "share" / "opencode" / "auth.json",
-    ]:
-        if auth.exists():
-            leaves = rx._string_leaves(json.loads(auth.read_text()))
-            rx.SECRETS.extend(leaves)
-            rx.SECRETS.extend(
-                i for t in leaves for i in rx._token_identifiers(t)
-            )
+    rx.load_secrets()
     git_name, git_email = rx.git_identity()
     rep = args.rep
     out_dir = args.out or rx.REPO / "runs" / EXPERIMENT / f"rep-{rep}"
@@ -249,7 +237,9 @@ def main() -> None:
                 f"exit={result['exit_code']} timed_out={result['timed_out']} "
                 f"({result['duration_s']} s)"
             )
-            if result["exit_code"] == 0 or result["timed_out"]:
+            if result["exit_code"] == 0 or (
+                result["timed_out"] and result["produced_output"]
+            ):
                 break
         meta = {
             "experiment": EXPERIMENT,
@@ -278,7 +268,8 @@ def main() -> None:
         metas = list(pool.map(do_job, jobs))
     # A timeout is an outcome here (the agent didn't finish with Calkit in
     # time), but a CLI that kept failing means the run is missing
-    failed = [m for m in metas if m["exit_code"] != 0 and not m["timed_out"]]
+    failed = [m for m in metas if m["exit_code"] != 0
+              and not (m["timed_out"] and m["produced_output"])]
     rx.log(f"[{EXPERIMENT}] {len(metas) - len(failed)}/{len(metas)} ok")
     if failed:
         sys.exit(1)

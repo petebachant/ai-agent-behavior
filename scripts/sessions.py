@@ -10,8 +10,9 @@ subagents the main agent started.
 - Codex: each thread, the main one and each subagent's, writes its own
   rollout file with a running ``token_count``; the stream doesn't report
   spawns, so subagents are the rollout files beyond the first.
-- OpenCode: each subagent runs in a child session; every session's
-  exported messages carry their own token counts.
+- OpenCode: each subagent runs in a child session; every session's export
+  carries its own token totals, and the runner's index of sessions records
+  each one's parent.
 """
 
 import json
@@ -71,27 +72,28 @@ def _codex(session_dir: Path) -> dict:
 
 
 def _opencode(session_dir: Path) -> dict:
+    native = session_dir / "native"
+    index = json.loads((native / "opencode-sessions.json").read_text())
     tokens = output = 0
     cost = 0.0
-    n_children = 0
-    for path in sorted((session_dir / "native").glob("opencode-export-*")):
+    for s in index:
         try:
-            export = json.loads(path.read_text())
-        except json.JSONDecodeError:
+            export = json.loads(
+                (native / f"opencode-export-{s['id']}.json").read_text()
+            )
+        except (OSError, json.JSONDecodeError):
             continue
-        if export.get("info", {}).get("parentID"):
-            n_children += 1
-        for msg in export.get("messages", []):
-            info = msg.get("info", {})
-            t = info.get("tokens") or {}
-            cache = t.get("cache") or {}
-            output += t.get("output", 0) + t.get("reasoning", 0)
-            tokens += (t.get("input", 0) + t.get("output", 0)
-                       + t.get("reasoning", 0) + cache.get("read", 0)
-                       + cache.get("write", 0))
-            cost += info.get("cost") or 0
+        info = export.get("info", {})
+        t = info.get("tokens") or {}
+        cache = t.get("cache") or {}
+        output += t.get("output", 0) + t.get("reasoning", 0)
+        tokens += (t.get("input", 0) + t.get("output", 0)
+                   + t.get("reasoning", 0) + cache.get("read", 0)
+                   + cache.get("write", 0))
+        cost += info.get("cost") or 0
     return {"tokens": tokens or None, "output_tokens": output or None,
-            "cost_usd": cost or None, "n_subagents": n_children}
+            "cost_usd": cost or None,
+            "n_subagents": sum(bool(s["parent_id"]) for s in index)}
 
 
 def usage(run: dict) -> dict:
