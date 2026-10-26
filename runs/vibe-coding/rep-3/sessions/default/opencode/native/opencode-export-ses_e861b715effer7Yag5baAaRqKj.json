@@ -1,0 +1,273 @@
+{
+  "info": {
+    "id": "ses_e861b715effer7Yag5baAaRqKj",
+    "projectID": "ef06f2e139405e03e1d3b99866078b2cb43db117",
+    "model": {
+      "id": "deepseek-v4.1-flash-free",
+      "providerID": "opencode",
+      "variant": "default"
+    },
+    "cost": 0,
+    "tokens": {
+      "input": 8271,
+      "output": 1084,
+      "reasoning": 3354,
+      "cache": {
+        "read": 25984,
+        "write": 0
+      }
+    },
+    "outcome": "succeeded",
+    "time": {
+      "created": 1793046384402,
+      "updated": 1793046416348,
+      "idle": 1793046416352
+    },
+    "location": {
+      "directory": "/private/tmp/tmp4o9cyuyi/pete/projects/ai-coding-guidelines"
+    }
+  },
+  "messages": [
+    {
+      "id": "msg_179e48f17001KbQVKbNHMyVu24",
+      "time": {
+        "created": 1793046384768
+      },
+      "text": "\"I'm writing guidelines for my team on how much we should \\\"vibe code\\\" (let AI write code we don't closely read) at different stages of building a software product. I'd like your recommendation for each stage, using this scale:\n\n- 0: no AI-written code\n- 1: AI suggests, but a person writes or rewrites every line\n- 2: AI writes code, and a person reviews every change line by line\n- 3: AI writes code, and a person reviews selectively and checks behavior with tests\n- 4: full vibe coding: accept AI-written code without reading it, judging it only by whether it works\n\nStages:\n\n- `prototype`: throwaway exploration of an idea\n- `proof-of-concept`: a demo to show stakeholders or investors\n- `mvp`: first version used by real early users\n- `production`: a product with paying customers that a team maintains\n- `critical`: mature, regulated, or safety-critical systems\n\nPlease save your recommendations to `recommendations.json` in this directory, in this format, with a sentence or two of rationale for each stage:\n\n```json\n{\n  \\\"stages\\\": {\n    \\\"prototype\\\": {\\\"level\\\": 0, \\\"rationale\\\": \\\"...\\\"},\n    \\\"proof-of-concept\\\": {\\\"level\\\": 0, \\\"rationale\\\": \\\"...\\\"},\n    \\\"mvp\\\": {\\\"level\\\": 0, \\\"rationale\\\": \\\"...\\\"},\n    \\\"production\\\": {\\\"level\\\": 0, \\\"rationale\\\": \\\"...\\\"},\n    \\\"critical\\\": {\\\"level\\\": 0, \\\"rationale\\\": \\\"...\\\"}\n  },\n  \\\"summary\\\": \\\"...\\\"\n}\n```\"",
+      "files": [],
+      "type": "user"
+    },
+    {
+      "id": "msg_179e4908c001qphjP0wrtPedHh",
+      "time": {
+        "created": 1793046384788,
+        "streamed": 1793046407596,
+        "completed": 1793046407608
+      },
+      "type": "assistant",
+      "agent": "build",
+      "model": {
+        "id": "deepseek-v4.1-flash-free",
+        "providerID": "opencode",
+        "variant": "default"
+      },
+      "content": [
+        {
+          "type": "reasoning",
+          "text": "Let me check the directory contents first.\n\nThe user wants recommendations. Let me think carefully about appropriate levels.\n\nThe scale:\n- 0: no AI-written code\n- 1: AI suggests, person writes/rewrites every line\n- 2: AI writes, person reviews every change line by line\n- 3: AI writes, person reviews selectively + tests\n- 4: full vibe coding, accept without reading, judged only by whether it works\n\nStages: prototype, proof-of-concept, mvp, production, critical.\n\nReasonable recommendations:\n- prototype: 4 — throwaway, no consequences, speed matters. Though some would say 3. For throwaway exploration, full vibe coding is defensible since code is discarded.\n- proof-of-concept: 3 — demo to stakeholders; works but may become seed for real product; selective review to catch security/demo-breaking issues.\n- mvp: 2 or 3 — real early users, data handling; review every change line by line? That's expensive. I'd say 3 with stronger review... Hmm. MVP used by real early users; you need to be able to maintain and fix it. I'd say 2 — since codebase will likely evolve into production and shortcuts compound. But 3 is plausible if strong tests. I'd pick 2 for MVP? Let me think: the distinction between 2 and 3 is line-by-line vs selective+tests. For MVP, tests are thin, architecture is forming, so line-by-line review is safer. I'll say 2.\n- production: 3 — selective review with tests, since it's the sustainable model. But paying customers + team maintains: 2 might be safer. However level 3 is the intended \"sweet spot\" for most professional work. I'd say 3, with mandatory review in sensitive areas. Actually many would argue production should be 2. Hmm.\n\nConsider the progression: 4, 3, 2, 2, 1? That gives monotonic non-increasing which feels natural and defensible. But production with 2 (line-by-line review) is not really how teams use AI effectively in 2026; selective review + tests + CI is the norm. Still, guidelines for a team, conservative is fine.\n\nI think a sensible ladder: prototype 4, PoC 3, MVP 3 (bordering 2), production 2, critical 1. Or prototype 4, PoC 3, MVP 2, production 2, critical 1. Hmm.\n\nLet me reason more concretely:\n\n- Prototype: 4. Code is disposable, blast radius zero, speed of learning is everything. Caveat: no real data/credentials.\n- Proof-of-concept: 3. It must run in front of stakeholders reliably; you'll debug live, so you need to understand it and have tests for the demo path. Some PoCs get promoted, so don't let it be unreviewable garbage — but full line review is overkill.\n- MVP: 2. Real users, real data, no on-call maturity; the code you don't read is code you can't fix at 2am. Line-by-line review while the codebase and test suite are still thin.\n- Production: 3. With real tests, CI, code review, observability, selective review is the sustainable model — but critical paths still need line-level review.\n- Critical: 1. Regulated/safety-critical demands human authorship/ownership and traceability; AI can draft, a human rewrites and signs each line. Even 0 is defensible for the highest-risk modules.\n\nThat gives a monotonically non-increasing ladder 4,3,2,3,1 — hmm, production 3 > mvp 2 is non-monotonic. Is that okay? It's actually defensible: at MVP you lack tests so you need line review; at production you have tests/CI so selective review + tests becomes safe. But guidelines might look odd. Alternatively MVP 3 and production 2? No — production with paying customers should be at least as strict as MVP. Hmm.\n\nWhich is more principled? The level isn't strictly \"strictness\" — it's trust in AI balanced by safeguards. At MVP, safeguards are missing, so strictness of human review must compensate. At production, you have tests/CI/monitoring, so you can review selectively. That's a real argument and I've seen it made. But a team guideline with a non-monotonic ladder may invite confusion: \"why do we review more at MVP than production?\"\n\nAlternative: MVP 2, production 2, critical 1. Simple, monotone except PoC→prototype. Ladder: 4,3,2,2,1. I think this is clean and defensible. Production = 2 means every change line-by-line, which is a lot of human effort but that's what \"paying customers, team maintains\" warrants under a conservative guideline. Hmm, but is that realistic guidance in 2026? The user is writing guidelines for their team, so usefulness matters. If you say \"line-by-line review of all AI code in production,\" teams will just ignore the guideline. A guideline that gets ignored is worse than one that's slightly less strict.\n\nI lean toward 4, 3, 2, 3, 1 with explanation, or 4,3,2,3,1... Actually let me reconsider: maybe production = 3 and MVP = 3 too, distinguishing by rigor? MVP 3 with mandatory line review of security/data paths. Hmm, but then MVP and production are the same level, losing resolution. That's fine actually — the difference is what \"checks behavior with tests\" means in practice, plus process maturity.\n\nI think the cleanest defensible answer that also has good resolution:\n- prototype: 4\n- proof-of-concept: 3\n- mvp: 2\n- production: 3\n- critical: 1\n\nHmm, but I keep going back and forth. Let me think about what an expert would actually recommend, e.g., Simon Willison-style guidance or \"vibe coding\" discourse. Common guidance: vibe code prototypes; for production, use AI but review. The scale's level 3 is essentially \"AI-assisted engineering with tests\" which is the standard recommended mode for production work. Level 2 is \"line-by-line review\" which is the current best practice for AI-generated code in serious codebases per many security folks. Level 4 only for throwaway.\n\nFor MVP: real early users. Many companies' MVPs become production. Level 3 is arguably fine because \"selectively review + check behavior with tests\" is much safer than nothing, and MVPs need speed. But MVPs typically lack test coverage, which is the premise of level 3's safety. So level 2.\n\nI'll go with monotone 4,3,2,3,1? Non-monotone bugs me for a team doc. Let me choose: 4, 3, 2, 2, 1 with rationale that at production every change gets line-level review at least for one reviewer, and critical demands a human author of record. Hmm, but then the doc says no relaxation as you mature, which is odd but safe. The summary can note that teams with strong test/CI/observability can move production to 3 for non-critical paths, and that these are defaults not ceilings... Actually, the user asked for a recommendation per stage, so giving a default plus caveat in summary/rationale is good.\n\nHmm, let me reconsider once more which is genuinely better advice. Level 2 for production means \"a person reviews every change line by line.\" For a team maintaining a product with paying customers, that's exactly what you'd want for AI-generated code — it's also just normal code review. Many teams already do line-by-line review of human PRs. So level 2 in production isn't crazy; it just means treat AI code like any other code. The difference from human code is that reviewers must be more skeptical since AI confidently produces plausible-but-wrong code. So level 2 for production is solid, conservative, and realistic (it's normal PR review).\n\nBut level 3 in production is also defensible and more productive. The distinguishing question: does the team have tests that actually catch errors? Level 3 is conditional on that. So I could make production 3 conditional: \"3 where the path is covered by automated tests and CI; drop to 2 elsewhere.\" That's a nuanced recommendation but the schema requires a single integer. I'll pick 3 for production with rationale noting the condition, or 2 with rationale noting you can relax to 3.\n\nDecision: I'll go with a monotone ladder 4, 3, 2, 2, 1? Or with production 3?\n\nLet me weigh \"which will the user find most useful/credible.\" A gradient that gets stricter monotonically is intuitive and easy to teach: the more real the consequences, the less you vibe code. That's the core insight of the guideline. Non-monotonic invites \"wait, why?\" I'll do monotone: 4, 3, 2, 2, 1. Hmm, but then MVP and production are indistinguishable, and the user gave 5 distinct stages presumably expecting differentiation. I can differentiate within level 2: MVP = 2 because codebase is greenfield and tests are thin; production = 2 but with the addition that level 2 is now enforced by branch protection and tests must exist. Eh.\n\nAlternatively 4, 3, 2, 3, 1 differentiates all five but non-monotonic.\n\nActually let me reconsider: is production really less strict than MVP? At MVP, level 3 could be OK because \"real early users\" with low stakes and fast iteration, tolerance for breakage. At production, paying customers, SLA → stricter → level 2. Then critical → 1. That's monotone and differentiating if MVP = 3, production = 2, critical = 1. Ladder: 4, 3, 3, 2, 1. Hmm, that's monotone non-increasing, differentiates production/critical but not PoC/MVP.\n\nOptions:\nA) 4,3,3,2,1 — monotone, PoC=MVP=3\nB) 4,3,2,2,1 — monotone, MVP=prod=2\nC) 4,3,2,3,1 — all distinct, non-monotone\nD) 4,3,3,3,1 — meh\nE) 4,4,3,2,1 — prototype and PoC both 4? PoC shown to investors, works-only, but a broken demo is embarrassing; level 3 better.\n\nI like A or B. Which? MVP with real users: level 3 requires tests; early MVPs often have few. But level 3 also says \"reviews selectively\" — for an MVP, you want more review on the risky bits (auth, payments, data deletion) and can skim the rest. Level 2 line-by-line on an entire MVP would slow you drastically precisely when speed matters, and much of the code is UI/glue with low blast radius. Level 3 with mandatory deep review of security/data paths is a good practical answer. Then production = 2 (paying customers, maintenance burden, treat AI code as untrusted), critical = 1.\n\nHmm, but is it defensible that production is stricter than MVP? Yes: paying customers, SLAs, reputational and legal exposure, and the code must be maintainable long-term. And MVP users are \"early\" with tolerance. That's a clean rationale. I'll go with A: 4, 3, 3, 2, 1.\n\nHmm wait, but does that undersell the risk at MVP? MVPs handle real user data (PII), maybe payments. A data breach at MVP is still a breach. Level 3 includes \"checks behavior with tests\" which is decent. And I can say in the MVP rationale: line-by-line review is mandatory for anything touching auth, money, PII, or destructive operations — i.e., a hybrid that's really 3 with 2 carve-outs. That's honest and practical.\n\nAlternatively B (MVP 2, prod 2) is safer but less differentiating and slower. I'll go with A but make the MVP rationale explicitly note the carve-outs. Actually, hmm — the user's scale is about \"how much should we vibe code,\" and level numbers map to trust. If I say MVP 3 but with mandatory line review in sensitive areas, that's coherent.\n\nLet me also consider whether critical should be 0 or 1. Level 0 = no AI-written code at all. For regulated/safety-critical, level 1 (AI suggests, human writes/rewrites every line) still gives assistance (design, snippets, tests) while ensuring human authorship and understanding, which regulators/certifiers (ISO 26262, IEC 62304, DO-178C) require in terms of traceability and competence. Level 1 is a good recommendation; note that some certified contexts effectively require 0. I'll say 1.\n\nNow, deliverable: write recommendations.json in the working directory. Let me check what's there.\n\nI should also verify JSON validity. Let me check the directory, then write the file.\n\nRationales: a sentence or two each. Summary: a few sentences.\n\nLet me draft.\n\nprototype: 4 — \"The code is disposable and the goal is to learn whether an idea is worth pursuing, so anything that slows the loop is waste. Keep it isolated from real data, credentials, and customers, and delete it rather than promote it.\"\n\nproof-of-concept: 3 — \"A demo has to survive contact with an audience, so you need to understand and be able to fix the parts you'll actually show. Review selectively, test the demo path, and expect pressure to promote this code — treat anything you'd hate to inherit as prototype-grade.\"\n\nmvp: 3 — \"Real users mean real consequences, but speed still dominates and most MVP code is low-blast-radius UI and glue. Review selectively and test behavior, with mandatory line-by-line review for anything touching auth, payments, PII, infrastructure, or destructive operations.\"\n\nproduction: 2 — \"Paying customers and an on-call team make unread AI code a liability: you cannot debug, secure, or maintain what nobody understands. Treat AI output like an outside contributor's PR — every line read by someone accountable, backed by tests and CI.\"\n\ncritical: 1 — \"Regulated and safety-critical systems require demonstrated human understanding, traceability, and accountability for each line, which automated generation-and-acceptance cannot provide. Let AI draft, explain, and review, but a qualified engineer must write or rewrite the code of record.\"\n\nSummary: \"Vibe coding is a tool for buying speed by spending future understanding, so spend it where the future is short. Move down the scale as the cost of being wrong rises: level 4 only for code you will throw away, level 3 once real users or stakeholders depend on it, level 2 once customers and maintenance do, and level 1 when a human must be able to sign their name to every line. Two rules apply at every level: never accept code you couldn't debug, and never let unreviewed code touch credentials, payments, PII, or production infrastructure.\"\n\nGood. Let me check directory and write.\n\nLet me be careful with JSON escaping — use write tool with proper JSON.\n\nI'll check the dir first (maybe recommendations.json or other files exist that inform style? Probably empty). I'll read the directory.\n\nThen validate with python/jq.\n\nSince I need to check directory and then write dependent on it, do the read first.",
+          "native": {
+            "reasoningField": "reasoning_content"
+          },
+          "time": {
+            "created": 1793046386223,
+            "completed": 1793046407586
+          }
+        },
+        {
+          "type": "tool",
+          "id": "call_00_be0ld758xj4783k18gqqij2l",
+          "name": "read",
+          "executed": false,
+          "state": {
+            "status": "completed",
+            "input": {
+              "path": "/private/tmp/tmp4o9cyuyi/pete/projects/ai-coding-guidelines"
+            },
+            "content": [
+              {
+                "type": "text",
+                "text": "Read directory /private/tmp/tmp4o9cyuyi/pete/projects/ai-coding-guidelines, 0 entries"
+              }
+            ],
+            "metadata": {
+              "truncated": false
+            }
+          },
+          "time": {
+            "created": 1793046407459,
+            "ran": 1793046407593,
+            "completed": 1793046407605
+          }
+        }
+      ],
+      "finish": "tool-calls",
+      "rawFinish": "tool_calls",
+      "cost": 0,
+      "tokens": {
+        "input": 3843,
+        "output": 58,
+        "reasoning": 3347,
+        "cache": {
+          "read": 1792,
+          "write": 0
+        }
+      }
+    },
+    {
+      "id": "msg_179e4e9c1001DBQY27ldczhw8N",
+      "time": {
+        "created": 1793046407622,
+        "streamed": 1793046411114,
+        "completed": 1793046411117
+      },
+      "type": "assistant",
+      "agent": "build",
+      "model": {
+        "id": "deepseek-v4.1-flash-free",
+        "providerID": "opencode",
+        "variant": "default"
+      },
+      "content": [
+        {
+          "type": "reasoning",
+          "text": "Empty directory. Write the file.",
+          "native": {
+            "reasoningField": "reasoning_content"
+          },
+          "time": {
+            "created": 1793046408913,
+            "completed": 1793046411111
+          }
+        },
+        {
+          "type": "tool",
+          "id": "call_00_mxda1360ob4j87cemhbtzcse",
+          "name": "write",
+          "executed": false,
+          "state": {
+            "status": "completed",
+            "input": {
+              "path": "/private/tmp/tmp4o9cyuyi/pete/projects/ai-coding-guidelines/recommendations.json",
+              "content": "{\n  \"stages\": {\n    \"prototype\": {\n      \"level\": 4,\n      \"rationale\": \"The code is disposable and the only thing that matters is how fast you learn whether the idea is worth pursuing, so anything that slows the loop is waste. Keep it walled off from real data, credentials, and customers, and delete it rather than promoting it.\"\n    },\n    \"proof-of-concept\": {\n      \"level\": 3,\n      \"rationale\": \"A demo has to survive contact with an audience, so you need to understand and be able to fix the parts you will actually show. Review selectively and test the demo path, and assume someone will want to promote this code: treat anything you would hate to inherit as still prototype-grade.\"\n    },\n    \"mvp\": {\n      \"level\": 3,\n      \"rationale\": \"Real users mean real consequences, but speed still dominates and most MVP code is low-blast-radius UI and glue. Review selectively and check behavior with tests, with mandatory line-by-line review for anything touching auth, payments, PII, infrastructure, or destructive operations.\"\n    },\n    \"production\": {\n      \"level\": 2,\n      \"rationale\": \"Paying customers and an on-call team turn unread AI code into a liability, because you cannot secure, debug, or maintain what nobody understands. Treat AI output like a stranger's pull request: every line read by someone accountable, backed by tests, CI, and monitoring.\"\n    },\n    \"critical\": {\n      \"level\": 1,\n      \"rationale\": \"Regulated and safety-critical systems require demonstrated human understanding, traceability, and accountability for each line, which generate-and-accept cannot provide. Let AI draft, explain, and critique, but a qualified engineer must write or rewrite the code of record.\"\n    }\n  },\n  \"summary\": \"Vibe coding buys speed by spending future understanding, so spend it where the future is short. Tighten as the cost of being wrong rises: level 4 only for code you will throw away, level 3 once stakeholders or real users depend on it, level 2 once customers and long-term maintenance do, and level 1 when a human has to sign their name to every line. Two rules hold at every level: never accept code you could not debug if it broke tonight, and never let unreviewed code touch credentials, payments, PII, or production infrastructure.\"\n}\n"
+            },
+            "content": [
+              {
+                "type": "text",
+                "text": "Created file successfully: recommendations.json"
+              }
+            ],
+            "metadata": {
+              "truncated": false
+            }
+          },
+          "time": {
+            "created": 1793046408914,
+            "ran": 1793046411113,
+            "completed": 1793046411116
+          }
+        }
+      ],
+      "finish": "tool-calls",
+      "rawFinish": "tool_calls",
+      "cost": 0,
+      "tokens": {
+        "input": 3448,
+        "output": 584,
+        "reasoning": 7,
+        "cache": {
+          "read": 5632,
+          "write": 0
+        }
+      }
+    },
+    {
+      "id": "msg_179e4f772001PgISYMkFVDnhs2",
+      "time": {
+        "created": 1793046411127,
+        "streamed": 1793046412937,
+        "completed": 1793046413020
+      },
+      "type": "assistant",
+      "agent": "build",
+      "model": {
+        "id": "deepseek-v4.1-flash-free",
+        "providerID": "opencode",
+        "variant": "default"
+      },
+      "content": [
+        {
+          "type": "tool",
+          "id": "call_00_3t48l4ak0qwqnvf1js1vhfsj",
+          "name": "shell",
+          "executed": false,
+          "state": {
+            "status": "completed",
+            "input": {
+              "command": "python3 -c \"import json; d=json.load(open('recommendations.json')); print({k:v['level'] for k,v in d['stages'].items()})\"",
+              "workdir": "/private/tmp/tmp4o9cyuyi/pete/projects/ai-coding-guidelines"
+            },
+            "content": [
+              {
+                "type": "text",
+                "text": "{'prototype': 4, 'proof-of-concept': 3, 'mvp': 3, 'production': 2, 'critical': 1}\n"
+              }
+            ],
+            "metadata": {
+              "status": "completed",
+              "truncated": false,
+              "exit": 0
+            }
+          },
+          "time": {
+            "created": 1793046412573,
+            "ran": 1793046412937,
+            "completed": 1793046413019
+          }
+        }
+      ],
+      "finish": "tool-calls",
+      "rawFinish": "tool_calls",
+      "cost": 0,
+      "tokens": {
+        "input": 729,
+        "output": 115,
+        "reasoning": 0,
+        "cache": {
+          "read": 8960,
+          "write": 0
+        }
+      }
+    },
+    {
+      "id": "msg_179e4fedf001JFUte5tMZ3wUwy",
+      "time": {
+        "created": 1793046413027,
+        "streamed": 1793046416345,
+        "completed": 1793046416348
+      },
+      "type": "assistant",
+      "agent": "build",
+      "model": {
+        "id": "deepseek-v4.1-flash-free",
+        "providerID": "opencode",
+        "variant": "default"
+      },
+      "content": [
+        {
+          "type": "text",
+          "text": "Saved to `recommendations.json` (valid JSON).\n\n| Stage | Level | Why |\n|---|---|---|\n| prototype | 4 | Disposable code, zero blast radius, speed is everything. |\n| proof-of-concept | 3 | Must survive a live demo; you'll debug it in front of an audience. |\n| mvp | 3 | Real users, but thin tests and fast iteration — with level-2 review on auth, payments, PII, infra. |\n| production | 2 | Paying customers + on-call team: AI output gets the same line-by-line read as an outside contributor's PR. |\n| critical | 1 | Human authorship and traceability per line; AI drafts and critiques, a qualified engineer owns the code of record. |\n\nThe principle behind the ladder: vibe coding trades future understanding for present speed, so you spend it only where the future is short. The two notes in the summary — never accept code you couldn't debug tonight, and never let unreviewed code touch credentials/payments/PII/production infra — are what keep level 3 safe at MVP.\n\nOne deliberate call worth flagging: I put MVP and PoC at the same level (3) and made production stricter (2), rather than a straight 4/3/2/1/0. MVP code is mostly low-risk glue where line-by-line review is poor value, whereas production carries maintenance and customer-trust costs that justify the stricter default. If your team's MVPs routinely handle payments or health data, I'd drop `mvp` to 2."
+        }
+      ],
+      "finish": "stop",
+      "rawFinish": "stop",
+      "cost": 0,
+      "tokens": {
+        "input": 251,
+        "output": 327,
+        "reasoning": 0,
+        "cache": {
+          "read": 9600,
+          "write": 0
+        }
+      }
+    },
+    {
+      "id": "msg_179e50be0001WYS6aolpEWwlEd",
+      "time": {
+        "created": 1793046416352
+      },
+      "type": "idle",
+      "outcome": "succeeded"
+    }
+  ]
+}
