@@ -118,8 +118,16 @@ def score(ws: Path, excluded_dirs: list[str]) -> dict:
     scripts = [f for f in files if f.suffix.lower() in SCRIPT_EXT]
 
     def producing_scripts(fig: Path) -> list[str]:
-        return [str(s) for s in scripts
-                if fig.name in (ws / s).read_text(errors="replace")]
+        # A script names its figure either in full or by its stem as a
+        # string, with the extension added in code, e.g.,
+        # Path("fig").with_suffix(".png")
+        stem = re.compile(r"[\"']" + re.escape(fig.stem) + r"[\"']")
+        found = []
+        for s in scripts:
+            text = (ws / s).read_text(errors="replace")
+            if fig.name in text or stem.search(text):
+                found.append(str(s))
+        return found
 
     figure_sources = {str(f): producing_scripts(f) for f in figures}
     req_files = [f for f in files if re.match(r"requirements.*\.txt$", f.name)]

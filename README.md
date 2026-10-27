@@ -120,7 +120,11 @@ After the answers were first written, the code-quality runs were
 redone because the well-structured fixture held stray Python cache
 files (`__pycache__/`) that aren't part of it in Git; the answers in
 `calkit.yaml` read their numbers from the current results, and its
-notes say where the earlier set differed.
+notes say where the earlier set differed. After the OpenCode 2.1.4 runs
+(see below), the reproducibility scorer was fixed to recognize a script
+that names its figure by stem and adds the extension in code, which it
+had counted as not producing the figure; this changed one run's
+`figures_scripted` and none of the practices.
 
 The `multi-agent`, `use-calkit`, and `calkit-skills` questions were
 registered later, again before any recorded runs, and each was then
