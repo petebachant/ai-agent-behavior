@@ -34,8 +34,9 @@ PATTERNS = re.compile(
     rb"|ghp_[A-Za-z0-9]{30,}"
     rb"|AKIA[0-9A-Z]{16}"
 )
-# Library files known to contain strings shaped like keys
-KNOWN_FALSE_POSITIVES = {"_spdx.py", "ImageFont.py"}
+# Library modules known to contain strings shaped like keys, matched by
+# module name so compiled copies (e.g., ImageFont.cpython-39.pyc) match too
+KNOWN_FALSE_POSITIVES = {"_spdx", "ImageFont"}
 
 
 def files_in(paths: list[Path]):
@@ -69,7 +70,7 @@ def main() -> None:
             if s in data:
                 n_secret += 1
                 print(f"SECRET {name}")
-        if Path(name).name in KNOWN_FALSE_POSITIVES:
+        if Path(name).name.split(".")[0] in KNOWN_FALSE_POSITIVES:
             continue
         for m in PATTERNS.finditer(data):
             patterns[(name, m.group(0)[:8].decode(errors="replace"))] += 1
