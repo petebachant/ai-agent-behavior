@@ -73,9 +73,7 @@ def main() -> None:
     dotenv.load_dotenv(rx.REPO / ".env")
     exp_dir = rx.REPO / "experiments" / EXPERIMENT
     cfg = yaml.safe_load((exp_dir / "experiment.yaml").read_text())
-    agents_cfg = yaml.safe_load(
-        (rx.REPO / "agents" / "agents.yaml").read_text()
-    )
+    agents_cfg = rx.load_agents(args.agents)
     rx.load_secrets()
     git_name, git_email = rx.git_identity()
     rep = args.rep
@@ -87,7 +85,6 @@ def main() -> None:
         for cond, cond_cfg in cfg["conditions"].items()
         if not args.conditions or cond in args.conditions
         for agent_name in agents_cfg
-        if not args.agents or agent_name in args.agents
     ]
 
     def do_job(job):

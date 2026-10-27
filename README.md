@@ -11,7 +11,7 @@ The project's research questions and their evidence-backed answers are in
 ## Method
 
 **Agents.** Each agent CLI is run with its non-interactive mode, with the
-models pinned in [`agents/agents.yaml`](agents/agents.yaml):
+models pinned in one file per agent in [`agents/`](agents/):
 
 | Agent      | Invocation                                                   |
 | ---------- | ------------------------------------------------------------ |
@@ -41,28 +41,27 @@ machine's shared background service. Prompts read like everyday requests,
 and the checks used to score the results never enter the workspace.
 
 **Records.** For every run, the full session is saved to
-`runs/<experiment>/rep-<n>/sessions/<condition>/<agent>/` (kept in Git): the
-exact prompt, the agent's streamed output (`transcript.jsonl`), its stderr,
-its own native session files (`native/`), a file listing of the final
-workspace, and run metadata (CLI version, model, timing, exit code). The
-final workspace itself, including any Git history the agent made, is
+`runs/<experiment>/<agent>/rep-<n>/sessions/<condition>/<agent>/` (kept in
+Git): the exact prompt, the agent's streamed output (`transcript.jsonl`),
+its stderr, its own native session files (`native/`), a file listing of the
+final workspace, and run metadata (CLI version, model, timing, exit code).
+The final workspace itself, including any Git history the agent made, is
 archived to
-`runs/<experiment>/rep-<n>/workspaces/<condition>/<agent>.tar.gz` (kept with
-DVC) for scoring, leaving out virtual environments and caches. Everything
-else the run left behind is archived too, for later inspection, to
-`runs/<experiment>/rep-<n>/trees/<condition>/<agent>.tar.gz` (kept with
-DVC): the whole fresh home, including virtual environments, files written
-outside the project directory, and the agent's own state and caches, plus
-the temp dir and the sandbox profile. Copied credentials are left out, as is
-Claude Code's signed policy cache, which names the account inside a token, and
-secrets and account identifiers are masked in every saved file, including
-OpenCode's database, where it keeps the credentials imported into each run.
-Each repetition of each experiment is its own pipeline stage, so more
-repetitions can be added by raising the range in `calkit.yaml` without
-rerunning the existing ones. In the `multi-agent` and `use-calkit`
-experiments each agent also has its own stage per repetition, with its runs
-under `runs/<experiment>/<agent>/rep-<n>/`, so a problem with one agent's
-service, such as a usage limit, doesn't hold up the others.
+`runs/<experiment>/<agent>/rep-<n>/workspaces/<condition>/<agent>.tar.gz`
+(kept with DVC) for scoring, leaving out virtual environments and caches.
+Everything else the run left behind is archived too, for later inspection,
+to `runs/<experiment>/<agent>/rep-<n>/trees/<condition>/<agent>.tar.gz`
+(kept with DVC): the whole fresh home, including virtual environments, files
+written outside the project directory, and the agent's own state and caches,
+plus the temp dir and the sandbox profile. Copied credentials are left out,
+as is Claude Code's signed policy cache, which names the account inside a
+token, and secrets and account identifiers are masked in every saved file,
+including OpenCode's database, where it keeps the credentials imported into
+each run. Each agent's repetition of each experiment is its own pipeline
+stage, depending only on that agent's config file, so agents and repetitions
+can be added in `calkit.yaml` without rerunning the existing ones, and a
+problem with one agent's service, such as a usage limit, doesn't hold up the
+others.
 
 **Experiments.**
 
@@ -156,6 +155,19 @@ for OpenCode 2 in ways that don't affect the other agents, so the first
 three experiments' Claude Code and Codex runs were kept rather than
 rerun, and their pipeline stages were recorded as current with the new
 runner.
+
+**OpenCode's model.** With OpenCode 2.1.4, the free DeepSeek v4.1 Flash
+model hit OpenCode Zen's free usage caps partway through the later
+experiments, the last one with a wait of nearly a day, which would have
+left the study taking days to finish. OpenCode was therefore switched to
+the paid version of the same model (`opencode/deepseek-v4.1-flash`, a
+separate model ID from `opencode/deepseek-v4.1-flash-free`), and all of
+its runs were redone with it, so it uses one model throughout. Its runs
+with the free model remain in the Git and DVC history. At the same time,
+the first three experiments were split into one pipeline stage per
+agent and repetition, like the later ones, and each agent's config was
+moved to its own file; the Claude Code and Codex runs were moved into
+the new layout unchanged and their stages recorded as current.
 
 ## Related work
 

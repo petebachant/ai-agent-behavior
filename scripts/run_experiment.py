@@ -111,6 +111,22 @@ def cli_version(cli: str) -> str:
     return out.stdout.strip().splitlines()[-1]
 
 
+def load_agents(names: list[str] | None = None) -> dict[str, dict]:
+    """Agent configs from agents/<name>.yaml, all or only those named.
+
+    Each agent has its own file so a pipeline stage depends only on its own
+    agent's config, and adding an agent doesn't invalidate other runs.
+    """
+    paths = sorted((REPO / "agents").glob("*.yaml"))
+    found = {p.stem: yaml.safe_load(p.read_text()) for p in paths}
+    missing = set(names or []) - set(found)
+    if missing:
+        raise SystemExit(
+            f"No config in agents/ for: {', '.join(sorted(missing))}"
+        )
+    return {n: a for n, a in found.items() if not names or n in names}
+
+
 def git_identity() -> tuple[str, str]:
     def get(key: str) -> str:
         return subprocess.run(
@@ -536,7 +552,8 @@ def main() -> None:
     parser.add_argument("--rep", type=int, required=True)
     parser.add_argument("--jobs", type=int, default=6)
     parser.add_argument("--max-attempts", type=int, default=3)
-    # For smoke tests: a subset of agents and another output dir
+    # A subset of agents and another output dir, e.g., for one stage per
+    # agent
     parser.add_argument("--agents", nargs="+")
     parser.add_argument("--out", type=Path)
     args = parser.parse_args()
@@ -546,12 +563,10 @@ def main() -> None:
     dotenv.load_dotenv(REPO / ".env")
     exp_dir = REPO / "experiments" / args.experiment
     cfg = yaml.safe_load((exp_dir / "experiment.yaml").read_text())
-    agents_cfg = yaml.safe_load((REPO / "agents" / "agents.yaml").read_text())
     prompt = (exp_dir / cfg["prompt"]).read_text().strip()
     agents = {
         name: Agent(name, a["cli"], a["model"])
-        for name, a in agents_cfg.items()
-        if not args.agents or name in args.agents
+        for name, a in load_agents(args.agents).items()
     }
     load_secrets()
     git_name, git_email = git_identity()

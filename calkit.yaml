@@ -423,29 +423,38 @@ pipeline:
       args:
         - --experiment={experiment}
         - --rep={rep}
+        - --agents={agent}
+        - --out=runs/{experiment}/{agent}/rep-{rep}
       environment: main
+      # One stage per agent and repetition, each depending only on its own
+      # agent's config, so adding an agent or repetition runs only the new
+      # stages, and one agent's failures (e.g., hitting a usage limit) don't
+      # hold up the others
       iterate_over:
         - arg_name: experiment
           values:
             - code-quality
             - reproducibility
             - vibe-coding
-        # Repetitions are separate stages, so raising 'stop' runs only the
-        # new ones
+        - arg_name: agent
+          values:
+            - claude
+            - codex
+            - opencode
         - arg_name: rep
           values:
             - range:
                 start: 1
                 stop: 6
       inputs:
-        - agents/agents.yaml
+        - agents/{agent}.yaml
         - agents/sandbox.sb
         - experiments/{experiment}
       outputs:
-        - path: runs/{experiment}/rep-{rep}/sessions
+        - path: runs/{experiment}/{agent}/rep-{rep}/sessions
           storage: git
-        - runs/{experiment}/rep-{rep}/workspaces
-        - runs/{experiment}/rep-{rep}/trees
+        - runs/{experiment}/{agent}/rep-{rep}/workspaces
+        - runs/{experiment}/{agent}/rep-{rep}/trees
     run-multi-agent:
       kind: python-script
       description: >-
@@ -457,8 +466,7 @@ pipeline:
         - --agents={agent}
         - --out=runs/multi-agent/{agent}/rep-{rep}
       environment: main
-      # One stage per agent and repetition, so one agent's failures (e.g.,
-      # hitting a usage limit) don't hold up the others
+      # One stage per agent and repetition, as for run-agents
       iterate_over:
         - arg_name: agent
           values:
@@ -474,7 +482,7 @@ pipeline:
       # changing them rescores without rerunning agents
       inputs:
         - scripts/run_experiment.py
-        - agents/agents.yaml
+        - agents/{agent}.yaml
         - agents/sandbox.sb
         - experiments/multi-agent/experiment.yaml
         - experiments/multi-agent/prompts
@@ -509,7 +517,7 @@ pipeline:
                 stop: 6
       inputs:
         - scripts/run_experiment.py
-        - agents/agents.yaml
+        - agents/{agent}.yaml
         - agents/sandbox.sb
         - experiments/use-calkit
         - experiments/reproducibility/fixtures/default
