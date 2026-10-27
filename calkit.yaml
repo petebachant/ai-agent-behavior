@@ -257,57 +257,6 @@ questions:
       since redone with 2.1.4, one run on the machine without Git ran `git
       status` while looking around the directory and carried on without
       remarking on the failure.
-  - name: vibe-coding
-    question: >-
-      What degrees of vibe coding are appropriate for what stage of software
-      product development?
-    hypothesis: >-
-      Agents will recommend less vibe coding as the stakes rise: full vibe
-      coding (level 4) for throwaway prototypes, the setting the term was
-      coined for [@karpathy2025], falling monotonically across stages to at
-      most line-by-line review (level 2) for critical systems, given
-      evidence that AI assistance yields less secure code with
-      overconfidence [@perry2023] and can slow experienced developers on
-      mature codebases [@becker2025]. These are agents' recommendations, not
-      measured outcomes.
-    answer: >-
-      According to the agents, vibe coding suits prototypes and gives way
-      to more human review as stakes rise. Median recommended levels on the
-      0--4 scale were {proto:g} for prototypes (full vibe coding), {poc:g}
-      for proofs of concept, {mvp:g} for MVPs, {prod:g} for production
-      software, and {crit:g} for critical systems, over {n} runs.
-      {match:.0%} of runs had the hypothesized shape: level 4 for
-      prototypes, never more vibe coding at a later stage, and at most
-      line-by-line review (level 2) for critical systems. The agents
-      differed most at the MVP stage (Claude's median {claude_mvp:g},
-      Codex's {codex_mvp:g}, and OpenCode's {opencode_mvp:g}) and for
-      critical systems, where recommendations ranged from {crit_min:g} to
-      {crit_max:g}.
-    evidence:
-      - kind: figure
-        path: figures/vibe-coding.png
-      - kind: result
-        path: results/vibe-coding.json
-        values:
-          n: summary.n_runs
-          match: summary.frac_matches_hypothesis
-          proto: summary.overall.prototype.median
-          poc: summary.overall.proof-of-concept.median
-          mvp: summary.overall.mvp.median
-          prod: summary.overall.production.median
-          crit: summary.overall.critical.median
-          crit_min: summary.overall.critical.min
-          crit_max: summary.overall.critical.max
-          claude_mvp: summary.by_agent.claude.mvp.median
-          codex_mvp: summary.by_agent.codex.mvp.median
-          opencode_mvp: summary.by_agent.opencode.mvp.median
-          per_agent: summary.by_agent.claude.prototype.n
-    notes: >-
-      Each agent made {per_agent:g} recommendations. The per-run check of
-      the hypothesized shape was added to scripts/score_vibe_coding.py
-      after the runs, to make the pre-registered wording testable. The one
-      level 0 for critical systems is from OpenCode with 2.1.4; its earlier
-      1.19.0 runs, since redone, recommended level 1 every time.
   - name: multi-agent
     question: >-
       When do multi-agent workflows produce better results more quickly?
@@ -435,7 +384,6 @@ pipeline:
           values:
             - code-quality
             - reproducibility
-            - vibe-coding
         - arg_name: agent
           values:
             - claude
@@ -550,18 +498,6 @@ pipeline:
         - path: results/reproducibility.json
           storage: git
         - path: figures/reproducibility.png
-          storage: git
-    score-vibe-coding:
-      kind: python-script
-      script_path: scripts/score_vibe_coding.py
-      environment: main
-      inputs:
-        - scripts/common.py
-        - runs/vibe-coding
-      outputs:
-        - path: results/vibe-coding.json
-          storage: git
-        - path: figures/vibe-coding.png
           storage: git
     score-multi-agent:
       kind: python-script

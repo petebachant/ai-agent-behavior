@@ -77,9 +77,6 @@ others.
   provenance. In a `no-git` condition the same request is made on a machine
   without Git, and the sessions are checked for whether agents try Git,
   notice it is missing, or suggest or attempt installing it.
-- `vibe-coding`: a request for recommendations on how much to vibe code at
-  each stage of product development, on a fixed 0--4 scale. These results
-  are the agents' opinions, not measured outcomes.
 - `multi-agent`: two implementation tasks, one whose parts are independent
   (five unrelated utility modules) and one whose parts depend on each
   other (a small SQL engine over CSV files), each done by a single agent
@@ -103,9 +100,10 @@ runs, so the Git history shows they were set in advance. Before that, a
 pilot of one run each by Codex and OpenCode per experiment was used to test
 the runner and scorers, and then discarded. Its results (on the poor
 codebase both agents' changes scored as improvements; neither used version
-control, declared an environment, or set up a pipeline; and both
-recommended levels 4, 3, 2, 2, 1 across the stages) were seen before the
-hypotheses were written, but the hypotheses are based on the cited
+control, declared an environment, or set up a pipeline; and, for the
+since-dropped `vibe-coding` question (see below), both recommended levels
+4, 3, 2, 2, 1 across the stages) were seen before the hypotheses were
+written, but the hypotheses are based on the cited
 literature. The `unprompted-tests` and `missing-git` questions were added
 afterwards, still before any recorded runs, with a further pilot of the
 `no-git` condition and of Codex on the code-quality task: neither agent
@@ -145,14 +143,14 @@ and it too loaded a skill when installed.
 **Agent versions.** OpenCode's original credentials expired before these
 later experiments ran, and OpenCode was upgraded from 1.19.0 to 2.1.4
 when logging in again. To keep each agent on one version across the
-project, OpenCode's runs of the first three experiments were redone with
+project, OpenCode's runs of the original experiments were redone with
 2.1.4 and the same model; its 1.19.0 runs remain in the Git and DVC
 history. Claude Code meanwhile updated itself from 2.1.300 to 2.1.310,
-and 2.1.300 was no longer installed, so the first three experiments'
+and 2.1.300 was no longer installed, so the original experiments'
 Claude Code runs are from 2.1.300 and the later experiments' from
 2.1.310 (each run's metadata records its version). The runner changed
-for OpenCode 2 in ways that don't affect the other agents, so the first
-three experiments' Claude Code and Codex runs were kept rather than
+for OpenCode 2 in ways that don't affect the other agents, so the
+original experiments' Claude Code and Codex runs were kept rather than
 rerun, and their pipeline stages were recorded as current with the new
 runner.
 
@@ -164,10 +162,23 @@ the paid version of the same model (`opencode/deepseek-v4.1-flash`, a
 separate model ID from `opencode/deepseek-v4.1-flash-free`), and all of
 its runs were redone with it, so it uses one model throughout. Its runs
 with the free model remain in the Git and DVC history. At the same time,
-the first three experiments were split into one pipeline stage per
+the original experiments were split into one pipeline stage per
 agent and repetition, like the later ones, and each agent's config was
 moved to its own file; the Claude Code and Codex runs were moved into
 the new layout unchanged and their stages recorded as current.
+
+**Dropped question.** The original experiments included a third,
+`vibe-coding`, asking "What degrees of vibe coding are appropriate for what
+stage of software product development?" Agents were asked to recommend a
+level on a fixed 0--4 scale for each of five stages. It was registered with
+the others and run, then dropped because it recorded the agents' opinions
+rather than how they behave, which is what the other questions measure. Its
+results had already been seen: in the last scored set (commit `80e2001`,
+with OpenCode on the free model), 93% of the 15 runs matched the
+hypothesized shape, full vibe coding for prototypes, falling to at most
+line-by-line review for critical systems. Its question, prompt, scorer,
+results, and runs, including OpenCode's redone runs on the paid model
+(commit `08b1a4c`, never scored), remain in the Git and DVC history.
 
 ## Related work
 
@@ -179,11 +190,6 @@ here after the fact. It synthesizes how often
 claims appear across 47 sources rather than measuring behavior, so the
 comparison is between what the literature says and what agents did:
 
-- **Vibe coding by stage.** The review finds the evidence strongest for
-  prototyping and weakest for production and safety-critical use, and
-  advises scaling verification with the intended use of the code. The
-  agents' recommendations follow the same shape, though they may simply
-  echo the same literature rather than add independent evidence.
 - **Tests.** Validation and testing pipelines are the safeguard the
   reviewed sources recommend most, but the agents added or ran tests
   mostly when the codebase already had them, leaving that safeguard to
