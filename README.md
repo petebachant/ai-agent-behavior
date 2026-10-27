@@ -195,3 +195,8 @@ calkit run
 Agent runs are expensive and nondeterministic, so they are cached like any
 other stage and rerun only when the runner, sandbox, agent config, or an
 experiment's prompt or fixtures change.
+
+Before committing new runs, check them for leaked credentials with
+`calkit xenv -n main -- python scripts/scan_secrets.py runs`. It looks for
+the same secrets the runners mask, plus strings shaped like API keys and
+tokens to review by hand, and fails if it finds a known secret.
