@@ -300,6 +300,63 @@ questions:
       they go, which documentation can make possible [@hsieh2023]; and
       since agents didn't commit unprompted in the reproducibility
       experiment, committing is the step most likely to be missed.
+    answer:
+      if pipe > 0.5 and all_four < 0.5 and full < 0.25: >-
+        Partly, as hypothesized. Told only to "Use Calkit." on a machine
+        with Calkit, agents set up a Calkit pipeline in {pipe:.0%} of {n}
+        runs, but {all_four:.0%} followed all four reproducibility practices
+        and {full:.0%} were fully reproducible. Fully reproducible runs were
+        Claude {claude_full:.0%} of its runs, Codex {codex_full:.0%}, and
+        OpenCode {opencode_full:.0%}.
+      elif pipe > 0.5 and full >= 0.5: >-
+        In most runs, more often than hypothesized. Told only to "Use
+        Calkit." on a machine with Calkit, agents set up a Calkit pipeline
+        in {pipe:.0%} of {n} runs, and in {current:.0%} it was run, current,
+        and made the figure. {all_four:.0%} followed all four
+        reproducibility practices (fewer than half hypothesized) and
+        {full:.0%} were fully reproducible (fewer than a quarter
+        hypothesized): Claude {claude_full:.0%} of its runs, Codex
+        {codex_full:.0%}, and OpenCode {opencode_full:.0%}. Committing was
+        the step missed, with {committed:.0%} of runs committing all their
+        work.
+      elif pipe > 0.5: >-
+        Partly, though more often than hypothesized. Told only to "Use
+        Calkit." on a machine with Calkit, agents set up a Calkit pipeline
+        in {pipe:.0%} of {n} runs; {all_four:.0%} followed all four
+        reproducibility practices (fewer than half hypothesized) and
+        {full:.0%} were fully reproducible (fewer than a quarter
+        hypothesized): Claude {claude_full:.0%} of its runs, Codex
+        {codex_full:.0%}, and OpenCode {opencode_full:.0%}.
+      else: >-
+        Mostly not, contrary to the hypothesis. Told to "Use Calkit." on a
+        machine with Calkit, agents set up a Calkit pipeline in only
+        {pipe:.0%} of {n} runs, and {full:.0%} were fully reproducible.
+    evidence:
+      - kind: figure
+        path: figures/use-calkit.png
+      - kind: result
+        path: results/use-calkit.json
+        values:
+          n: summary.cli.overall.n_runs
+          pipe: summary.cli.overall.frac_calkit_pipeline
+          current: summary.cli.overall.frac_pipeline_current
+          all_four: summary.cli.overall.frac_all_practices
+          full: summary.cli.overall.frac_fully_reproducible
+          committed: summary.cli.overall.frac_committed
+          claude_full: summary.cli.by_agent.claude.frac_fully_reproducible
+          codex_full: summary.cli.by_agent.codex.frac_fully_reproducible
+          opencode_full: summary.cli.by_agent.opencode.frac_fully_reproducible
+          codex_committed: summary.cli.by_agent.codex.frac_committed
+          per_agent: summary.cli.by_agent.claude.n_runs
+    notes: >-
+      Each agent ran {per_agent:g} times. Every run that wasn't fully
+      reproducible had left work uncommitted; Codex committed all its work
+      in {codex_committed:.0%} of its runs. The question was piloted twice
+      before the recorded runs (see the README): the first pilot showed the
+      sandbox kept DVC from writing its machine-wide cache, which `calkit
+      init` needs, so that directory was opened to writes; in the second,
+      Claude's and OpenCode's work was fully reproducible and Codex set up
+      and ran a pipeline but didn't commit.
   - name: calkit-skills
     question: >-
       Does installing Calkit's agent skills help agents work reproducibly
@@ -313,6 +370,58 @@ questions:
       [@li2026] and with documentation in context improving tool use
       [@hsieh2023]. More than half of runs will load at least one of the
       skills.
+    answer:
+      if gain >= 0.15 and sk_full > cli_full: >-
+        Yes, as hypothesized. With Calkit's agent skills installed, agents
+        loaded a skill in {loaded:.0%} of runs, and {sk_all:.0%} of {n} runs
+        followed all four reproducibility practices, against {cli_all:.0%}
+        with Calkit alone; {sk_full:.0%} were fully reproducible, against
+        {cli_full:.0%}.
+      elif gain > -0.15: >-
+        Not measurably, contrary to the hypothesis. With Calkit's agent
+        skills installed, agents loaded a skill in {loaded:.0%} of runs, but
+        {sk_all:.0%} of {n} runs followed all four reproducibility
+        practices, against {cli_all:.0%} with Calkit alone, and
+        {sk_full:.0%} were fully reproducible, against {cli_full:.0%}. Fully
+        reproducible runs with and without the skills were Claude
+        {claude_sk:.0%} and {claude_cli:.0%}, Codex {codex_sk:.0%} and
+        {codex_cli:.0%}, and OpenCode {opencode_sk:.0%} and
+        {opencode_cli:.0%}.
+      else: >-
+        No, contrary to the hypothesis: agents did worse with the skills.
+        With Calkit's agent skills installed, {sk_all:.0%} of {n} runs
+        followed all four reproducibility practices, against {cli_all:.0%}
+        with Calkit alone, though agents loaded a skill in {loaded:.0%} of
+        runs.
+    evidence:
+      - kind: figure
+        path: figures/use-calkit.png
+      - kind: result
+        path: results/use-calkit.json
+        values:
+          n: summary.skills.overall.n_runs
+          gain: hypothesis.calkit-skills.gain_all_practices
+          loaded: summary.skills.overall.frac_loaded_skill
+          sk_all: summary.skills.overall.frac_all_practices
+          cli_all: summary.cli.overall.frac_all_practices
+          sk_full: summary.skills.overall.frac_fully_reproducible
+          cli_full: summary.cli.overall.frac_fully_reproducible
+          claude_sk: summary.skills.by_agent.claude.frac_fully_reproducible
+          claude_cli: summary.cli.by_agent.claude.frac_fully_reproducible
+          codex_sk: summary.skills.by_agent.codex.frac_fully_reproducible
+          codex_cli: summary.cli.by_agent.codex.frac_fully_reproducible
+          opencode_sk: summary.skills.by_agent.opencode.frac_fully_reproducible
+          opencode_cli: summary.cli.by_agent.opencode.frac_fully_reproducible
+    notes: >-
+      With {n} runs per condition, one run moves a share by about 7
+      points, so the pre-registered 15-point gain is about two runs. The
+      threshold for "did worse" (15 points lower) mirrors the
+      pre-registered gain and was set after the results were seen. Every
+      run in both conditions that wasn't fully reproducible had left work
+      uncommitted (see the use-calkit question), and the skills didn't
+      change that. In the pilot (see the README), all three agents loaded
+      a skill when it was installed, and only Codex's work wasn't fully
+      reproducible, with or without the skills.
 
 requirements:
   - kind: app
