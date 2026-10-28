@@ -189,7 +189,7 @@ the turn, saying they would integrate the work once notified. Back then
 each run used `opencode run --standalone`, which exited at that point and
 took the unfinished subagents with it, so both runs passed none of the
 checks. With them, the pooled pass rate on the coupled task was lower with
-subagents (83% against 95%); without them it was not (96% against 94%).
+subagents (83% against 95%); without them it was not (97% against 95%).
 The runner was changed to keep a private server up until the agent is done
 (see above), and OpenCode's multi-agent runs were redone; the earlier ones
 remain in the Git and DVC history (commit `08b1a4c`). In the redone runs,
