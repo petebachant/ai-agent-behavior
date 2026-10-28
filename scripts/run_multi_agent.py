@@ -45,8 +45,8 @@ class Agent(rx.Agent):
             )
         return bin_dir
 
-    def command(self, prompt: str) -> list[str]:
-        cmd = super().command(prompt)
+    def command(self, prompt: str, server_url: str | None = None) -> list[str]:
+        cmd = super().command(prompt, server_url)
         if self.subagents:
             return cmd
         if self.cli == "claude":
@@ -135,7 +135,9 @@ def main() -> None:
             "cli": agent.cli,
             "cli_version": agent.version,
             "model": agent.model,
-            "command": agent.command("<prompt>"),
+            "command": agent.command(
+                "<prompt>", "<server>" if agent.cli == "opencode" else None
+            ),
             "rep": rep,
             "project_name": cond_cfg["project_name"],
             "fixture": cond_cfg["fixture"],

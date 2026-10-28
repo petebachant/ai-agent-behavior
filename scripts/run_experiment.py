@@ -30,13 +30,16 @@ import os
 import re
 import shutil
 import signal
+import socket
 import sqlite3
 import subprocess
 import sys
 import tarfile
 import tempfile
 import threading
+import time
 from pathlib import Path
+from secrets import token_urlsafe
 
 import dotenv
 import yaml
@@ -205,7 +208,7 @@ class Agent:
             )
         return bin_dir
 
-    def command(self, prompt: str) -> list[str]:
+    def command(self, prompt: str, server_url: str | None = None) -> list[str]:
         if self.cli == "claude":
             return [
                 "claude",
@@ -233,9 +236,10 @@ class Agent:
             return [
                 "opencode",
                 "run",
-                # A private server per run, instead of the machine's shared
-                # background service, which runs outside the sandbox
-                "--standalone",
+                # A private server per run (see OpenCodeServer), instead of
+                # the machine's shared background service, which runs
+                # outside the sandbox
+                *(["--server", server_url] if server_url else ["--standalone"]),
                 "--format",
                 "json",
                 "--model",
@@ -410,6 +414,125 @@ def archive_run_tree(run_root: Path, home: Path, dest: Path) -> None:
         tar.add(run_root, arcname=run_root.name, filter=filt)
 
 
+def child_commands(pid: int) -> list[str]:
+    """The commands of every process below ``pid``."""
+    out = subprocess.run(
+        ["ps", "-A", "-o", "pid=,ppid=,comm="], capture_output=True, text=True
+    ).stdout
+    children: dict[int, list[tuple[int, str]]] = {}
+    for line in out.splitlines():
+        child, parent, comm = line.split(None, 2)
+        children.setdefault(int(parent), []).append((int(child), comm))
+    found, stack = [], [pid]
+    while stack:
+        for child, comm in children.get(stack.pop(), []):
+            found.append(comm)
+            stack.append(child)
+    return found
+
+
+class OpenCodeServer:
+    """A private OpenCode server for one run, kept up until the agent is done.
+
+    In OpenCode 2, an agent can leave subagents or shell commands running in
+    the background and end its turn; OpenCode tells it when they finish, and
+    it carries on. 'opencode run' exits when the turn ends, though, and with
+    --standalone takes its server and the unfinished work with it. So
+    'opencode run' connects to this server instead, which stays up until
+    every session is idle and nothing it started is still running, as it
+    would in interactive use.
+    """
+
+    POLL_S = 2
+    # Polls in a row with nothing working, so a parent that's about to be
+    # told its subagent finished isn't caught idle in between
+    QUIET_POLLS = 3
+
+    def __init__(
+        self, sandbox: list[str], work: Path, env: dict, home: Path,
+        log_path: Path,
+    ):
+        self.home = home
+        password = token_urlsafe(32)
+        SECRETS.append(password)
+        env["OPENCODE_SERVER_PASSWORD"] = password
+        with socket.socket() as s:
+            s.bind(("127.0.0.1", 0))
+            self.port = s.getsockname()[1]
+        self.url = f"http://127.0.0.1:{self.port}"
+        with open(log_path, "w") as log_file, _active_lock:
+            if _stopping:
+                raise Stopping()
+            self.proc = subprocess.Popen(
+                sandbox + ["opencode", "serve", "--hostname", "127.0.0.1",
+                           "--port", str(self.port)],
+                cwd=work,
+                env=env,
+                stdin=subprocess.DEVNULL,
+                stdout=log_file,
+                stderr=subprocess.STDOUT,
+                start_new_session=True,
+            )
+            _active_procs.add(self.proc)
+        deadline = time.monotonic() + 60
+        while True:
+            try:
+                socket.create_connection(("127.0.0.1", self.port), 1).close()
+                return
+            except OSError:
+                if self.proc.poll() is not None or time.monotonic() > deadline:
+                    self.stop()
+                    raise RuntimeError(f"OpenCode server didn't start: {log_path}")
+                time.sleep(0.2)
+
+    def working(self) -> list[str]:
+        """Sessions that aren't idle, and processes the server started."""
+        db = self.home / OPENCODE_DB
+        try:
+            con = sqlite3.connect(f"file:{db}?mode=ro", uri=True)
+            try:
+                busy = [sid for (sid,) in con.execute(
+                    "SELECT id FROM session_v2 "
+                    "WHERE time_idle IS NULL OR time_idle < time_updated"
+                )]
+            finally:
+                con.close()
+        except sqlite3.Error as e:
+            busy = [f"database: {e}"]
+        return busy + child_commands(self.proc.pid)
+
+    def wait_until_done(
+        self, deadline: float
+    ) -> datetime.datetime | None:
+        """When work stopped, or None if the deadline passed first."""
+        quiet_since, n_quiet = None, 0
+        while n_quiet < self.QUIET_POLLS:
+            if time.monotonic() > deadline:
+                return None
+            if self.working():
+                quiet_since, n_quiet = None, 0
+            else:
+                quiet_since = quiet_since or datetime.datetime.now(
+                    datetime.timezone.utc
+                )
+                n_quiet += 1
+            if n_quiet < self.QUIET_POLLS:
+                time.sleep(self.POLL_S)
+        return quiet_since
+
+    def stop(self) -> None:
+        # SIGTERM first, so the server can finish writing its database
+        try:
+            os.killpg(self.proc.pid, signal.SIGTERM)
+            self.proc.wait(timeout=15)
+        except subprocess.TimeoutExpired:
+            os.killpg(self.proc.pid, signal.SIGKILL)
+            self.proc.wait()
+        except OSError:
+            pass
+        _active_procs.discard(self.proc)
+
+
 def run_once(
     agent: Agent,
     prompt: str,
@@ -429,6 +552,7 @@ def run_once(
             raise Stopping()
         run_root = Path(tempfile.mkdtemp(dir="/private/tmp")).resolve()
         _active_roots.add(run_root)
+    server = None
     try:
         home = run_root / user
         work = home / "projects" / project_name
@@ -471,17 +595,22 @@ def run_once(
                 **kwargs,
             )
 
+        if agent.cli == "opencode":
+            server = OpenCodeServer(
+                sandbox, work, env, home, run_root / "opencode-server.log"
+            )
         session_dir.mkdir(parents=True, exist_ok=True)
         transcript = session_dir / "transcript.jsonl"
         stderr_path = session_dir / "stderr.log"
         start = datetime.datetime.now(datetime.timezone.utc)
+        deadline = time.monotonic() + timeout_s
         timed_out = False
         with open(transcript, "w") as out, open(stderr_path, "w") as err:
             with _active_lock:
                 if _stopping:
                     raise Stopping()
                 proc = subprocess.Popen(
-                    sandbox + agent.command(prompt),
+                    sandbox + agent.command(prompt, server and server.url),
                     cwd=work,
                     env=env,
                     stdin=subprocess.DEVNULL,
@@ -499,6 +628,18 @@ def run_once(
             finally:
                 _active_procs.discard(proc)
         end = datetime.datetime.now(datetime.timezone.utc)
+        # Time the agent kept working after the CLI exited, on work it left
+        # running in the background (see OpenCodeServer)
+        background_s = None
+        if server is not None:
+            if not timed_out:
+                done = server.wait_until_done(deadline)
+                if done is None:
+                    timed_out = True
+                    done = datetime.datetime.now(datetime.timezone.utc)
+                background_s = round(max((done - end).total_seconds(), 0), 1)
+                end = max(done, end)
+            server.stop()
         for path in (transcript, stderr_path):
             path.write_text(scrub(path.read_text()))
         agent.collect_native_sessions(
@@ -520,10 +661,13 @@ def run_once(
             "produced_output": transcript.stat().st_size > 0,
             "started": start.isoformat(),
             "ended": end.isoformat(),
+            "background_s": background_s,
             "duration_s": round((end - start).total_seconds(), 1),
             "excluded_dirs": excluded,
         }
     finally:
+        if server is not None:
+            server.stop()
         shutil.rmtree(run_root, ignore_errors=True)
         with _active_lock:
             _active_roots.discard(run_root)

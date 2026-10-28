@@ -35,15 +35,21 @@ directories, which lets a condition leave a command off the machine entirely
 write rule is DVC's machine-wide cache directory (`/Library/Caches/dvc`) in
 the `use-calkit` experiment, which Calkit uses through DVC and any user can
 write to on a normal machine; DVC keeps a separate subdirectory there for
-each repo path, and each run's path is unique. OpenCode is run with
-`--standalone`, so each run gets its own private server rather than the
-machine's shared background service. Prompts read like everyday requests,
+each repo path, and each run's path is unique. OpenCode connects to a
+private server started for each run inside the sandbox, rather than the
+machine's shared background service. OpenCode 2 lets an agent end its turn
+while subagents or shell commands keep running in the background, and
+resumes it when they finish, but `opencode run` exits as soon as the turn
+ends; so the server is kept up until every session is idle and nothing it
+started is still running, as in interactive use, and the run's wall time
+includes that wait. Prompts read like everyday requests,
 and the checks used to score the results never enter the workspace.
 
 **Records.** For every run, the full session is saved to
 `runs/<experiment>/<agent>/rep-<n>/sessions/<condition>/<agent>/` (kept in
 Git): the exact prompt, the agent's streamed output (`transcript.jsonl`),
-its stderr, its own native session files (`native/`), a file listing of the
+its stderr, its own native session files (`native/`, which for OpenCode also
+cover anything it did after `opencode run` exited), a file listing of the
 final workspace, and run metadata (CLI version, model, timing, exit code).
 The final workspace itself, including any Git history the agent made, is
 archived to
@@ -166,6 +172,26 @@ the original experiments were split into one pipeline stage per
 agent and repetition, like the later ones, and each agent's config was
 moved to its own file; the Claude Code and Codex runs were moved into
 the new layout unchanged and their stages recorded as current.
+
+**OpenCode's background work.** After the paid-model runs were scored,
+two of OpenCode's coupled-task runs with subagents (repetitions 1 and 4)
+turned out to have started their subagents in the background and ended
+the turn, saying they would integrate the work once notified. Back then
+each run used `opencode run --standalone`, which exited at that point and
+took the unfinished subagents with it, so both runs passed none of the
+checks. With them, the pooled pass rate on the coupled task was lower with
+subagents (83% against 95%); without them it was not (96% against 94%).
+The runner was changed to keep a private server up until the agent is done
+(see above), and OpenCode's multi-agent runs were redone; the earlier ones
+remain in the Git and DVC history (commit `08b1a4c`). In the redone runs,
+none left work in the background and OpenCode passed every check in all
+ten runs with subagents, so the coupled task's pass rate was no longer
+lower with subagents and that part of the hypothesis did not hold (see
+the `multi-agent` answer). No other OpenCode
+run, in any experiment, left work running in the background when it
+ended, which the transcripts show, and the change affects only OpenCode,
+so the other experiments' runs and the other agents' stages were kept and
+recorded as current.
 
 **Dropped question.** The original experiments included a third,
 `vibe-coding`, asking "What degrees of vibe coding are appropriate for what

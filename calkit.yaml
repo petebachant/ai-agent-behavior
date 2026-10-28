@@ -283,6 +283,83 @@ questions:
       the coupled task, it will not lower the median wall time, and the
       mean pass rate will be lower. In both tasks, runs with subagents will
       use more tokens.
+    answer:
+      if held: >-
+        Only when the work splits into independent parts, and then by being
+        quicker rather than better, as hypothesized. Pooling the three
+        agents, asking for subagents on the independent task cut the median
+        wall time to {ind_time:.2f}x the single agent's, with mean pass
+        rates of {ind_multi:.1%} and {ind_single:.1%}; on the coupled task
+        it took {cou_time:.2f}x as long and passed {cou_multi:.1%} of checks
+        against {cou_single:.1%}. Runs with subagents used {ind_tok:.1f}x
+        and {cou_tok:.1f}x the tokens. By agent, the independent task's
+        median wall time with subagents was {claude_ind:.2f}x the single
+        agent's for Claude, {codex_ind:.2f}x for Codex, and
+        {opencode_ind:.2f}x for OpenCode.
+      elif ind_quick and ind_within and cou_not_quick and more_tokens: >-
+        Pooled across agents, only when the work splits into independent
+        parts, and then by being quicker rather than better, as
+        hypothesized; but on coupled work subagents were slower without
+        being worse, where a lower pass rate was hypothesized. Asking for
+        subagents on the independent task cut the pooled median wall time to
+        {ind_time:.2f}x the single agent's, with mean pass rates of
+        {ind_multi:.1%} and {ind_single:.1%}; on the coupled task it took
+        {cou_time:.2f}x as long and passed {cou_multi:.1%} of checks
+        against {cou_single:.1%}. Runs with subagents used {ind_tok:.1f}x
+        and {cou_tok:.1f}x the tokens. The speedup varied by agent: on the
+        independent task, median wall time with subagents was {claude_ind:.2f}x the single agent's for Claude,
+        {codex_ind:.2f}x for Codex, and {opencode_ind:.2f}x for OpenCode.
+      else: >-
+        Not in the pattern hypothesized. Pooling the three agents, asking
+        for subagents changed the median wall time to {ind_time:.2f}x the
+        single agent's on the independent task and {cou_time:.2f}x on the
+        coupled task, with mean pass rates of {ind_multi:.1%} against
+        {ind_single:.1%} and {cou_multi:.1%} against {cou_single:.1%}, and
+        used {ind_tok:.1f}x and {cou_tok:.1f}x the tokens. By agent, the
+        independent task's median wall time with subagents was
+        {claude_ind:.2f}x the single agent's for Claude, {codex_ind:.2f}x
+        for Codex, and {opencode_ind:.2f}x for OpenCode.
+    evidence:
+      - kind: figure
+        path: figures/multi-agent.png
+      - kind: result
+        path: results/multi-agent.json
+        values:
+          held: hypothesis.all
+          ind_quick: hypothesis.independent_quicker
+          ind_within: hypothesis.independent_pass_rate_within_margin
+          cou_not_quick: hypothesis.coupled_not_quicker
+          more_tokens: hypothesis.more_tokens_both
+          n: summary.independent.overall.single.n_runs
+          per_agent: summary.independent.by_agent.claude.single.n_runs
+          ind_time: summary.independent.overall.comparison.ratio_median_duration
+          cou_time: summary.coupled.overall.comparison.ratio_median_duration
+          ind_tok: summary.independent.overall.comparison.ratio_median_tokens
+          cou_tok: summary.coupled.overall.comparison.ratio_median_tokens
+          ind_single: summary.independent.overall.single.mean_pass_rate
+          ind_multi: summary.independent.overall.multi.mean_pass_rate
+          cou_single: summary.coupled.overall.single.mean_pass_rate
+          cou_multi: summary.coupled.overall.multi.mean_pass_rate
+          cou_all_single: summary.coupled.overall.single.frac_all_passed
+          cou_all_multi: summary.coupled.overall.multi.frac_all_passed
+          claude_ind: summary.independent.by_agent.claude.comparison.ratio_median_duration
+          codex_ind: summary.independent.by_agent.codex.comparison.ratio_median_duration
+          opencode_ind: summary.independent.by_agent.opencode.comparison.ratio_median_duration
+    notes: >-
+      Each agent ran {per_agent:g} times per condition ({n} pooled). A
+      ratio under 1 means quicker with subagents. On the coupled task,
+      {cou_all_multi:.0%} of runs with subagents passed every check, against
+      {cou_all_single:.0%} without. The question was piloted before the recorded runs (see the
+      README); there, Codex's subagents on the coupled task wrote parts that
+      didn't fit together. In an earlier set of OpenCode's runs, two
+      coupled-task runs started their subagents in the background and ended
+      the turn, and the runner's exit cut the subagents off, so both passed
+      none of the checks; with them, the coupled pass rate was lower with
+      subagents and the hypothesis held on every point. After seeing this,
+      the runner was changed to wait for background work and OpenCode's
+      multi-agent runs were redone, in which none left work in the
+      background; the earlier runs are in the Git and DVC history (see the
+      README).
   - name: use-calkit
     question: >-
       Will AI agents work reproducibly if you simply tell them to use Calkit?
