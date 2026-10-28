@@ -23,6 +23,7 @@ import argparse
 import base64
 import concurrent.futures
 import datetime
+import fcntl
 import getpass
 import hashlib
 import json
@@ -60,6 +61,11 @@ EXCLUDED_DIRS = {
     ".ipynb_checkpoints",
 }
 SANDBOX_PROFILE = REPO / "agents" / "sandbox.sb"
+# Each agent's CLI is installed from its own npm lock file in agents/clis,
+# here rather than taken from PATH, so a run uses the version its config
+# pins whatever else is installed, in a directory that says nothing about
+# the experiment
+CLI_PREFIX = REAL_HOME / ".local" / "share" / "agent-clis"
 # Where the usual command-line tools live; agents get them through one
 # directory of symlinks so a condition can leave some out
 SYSTEM_BIN_DIRS = [
@@ -100,18 +106,47 @@ def log(msg: str) -> None:
         print(msg, flush=True)
 
 
-def resolve(cmd: str) -> Path:
-    path = shutil.which(cmd)
-    if path is None:
-        raise RuntimeError(f"{cmd} not found on PATH")
-    return Path(path)
-
-
 def cli_version(cli: str) -> str:
     out = subprocess.run(
         [cli, "--version"], capture_output=True, text=True, check=True
     )
     return out.stdout.strip().splitlines()[-1]
+
+
+def install_cli(name: str, cfg: dict) -> Path:
+    """Install an agent's pinned CLI if needed and return its executable.
+
+    Reinstalls whenever the lock file in agents/clis/<name> changes, and
+    fails unless the CLI reports the version in agents/<name>.yaml.
+    """
+    src = REPO / "agents" / "clis" / name
+    prefix = CLI_PREFIX / name
+    prefix.mkdir(parents=True, exist_ok=True)
+    exe = prefix / "node_modules" / ".bin" / cfg["cli"]
+    with open(prefix / ".install-lock", "w") as lock:
+        fcntl.flock(lock, fcntl.LOCK_EX)
+        installed = prefix / "package-lock.json"
+        wanted = (src / "package-lock.json").read_bytes()
+        if (
+            not exe.exists()
+            or not installed.exists()
+            or installed.read_bytes() != wanted
+        ):
+            log(f"[install] {name} CLI from agents/clis/{name}")
+            for f in ("package.json", "package-lock.json"):
+                shutil.copy(src / f, prefix / f)
+            subprocess.run(
+                ["npm", "ci", "--no-audit", "--no-fund"],
+                cwd=prefix, capture_output=True, text=True, check=True,
+            )
+    version = cli_version(str(exe))
+    if not re.search(rf"(^|[^\d.]){re.escape(cfg['version'])}($|[^\d.])",
+                     version):
+        raise RuntimeError(
+            f"{name} CLI reports {version!r}, not version {cfg['version']} "
+            f"from agents/{name}.yaml"
+        )
+    return exe
 
 
 def load_agents(names: list[str] | None = None) -> dict[str, dict]:
@@ -152,20 +187,15 @@ class Agent:
         self.name = name
         self.cli = cli
         self.model = model
-        self.cli_path = resolve(cli)
+        self.cli_path = install_cli(name, load_agents([name])[name])
         self.real_bin = self.cli_path.resolve()
-        self.version = cli_version(cli)
+        self.version = cli_version(str(self.cli_path))
 
     def read_only_paths(self) -> list[Path]:
         """Paths outside the run dir the agent's own install needs."""
-        if self.cli == "claude":
-            return [self.real_bin]
-        if self.cli == "codex":
-            # Node package dir, e.g., /opt/homebrew/lib/node_modules/...
-            return [self.real_bin.parent.parent]
-        if self.cli == "opencode":
-            return [self.real_bin.parent.parent]
-        raise ValueError(self.cli)
+        # The whole install, since an npm package's native binary can be
+        # in a sibling package, e.g., Codex's
+        return [CLI_PREFIX / self.name]
 
     def setup_home(self, home: Path, env: dict) -> Path:
         """Install the agent into a fresh home; return its bin dir."""

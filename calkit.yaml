@@ -508,17 +508,13 @@ requirements:
     version_spec: "==0.12.7"
     description: Installs Calkit into each use-calkit run's fresh home.
   - kind: app
-    name: claude
-    version_spec: "==2.1.310"
-    description: Claude Code CLI
+    name: npm
+    description: >-
+      Installs each agent's CLI at the version in agents/<agent>.yaml from
+      the lock file in agents/clis/<agent>, which the runner does itself.
   - kind: app
-    name: codex
-    version_spec: "==0.162.1"
-    description: OpenAI Codex CLI
-  - kind: app
-    name: opencode
-    version_spec: "==2.1.4"
-    description: OpenCode CLI
+    name: node
+    description: Runs the Codex CLI's launcher script.
   - kind: env-var
     name: CLAUDE_CODE_OAUTH_TOKEN
     description: >-
@@ -590,6 +586,7 @@ pipeline:
                 stop: 6
       inputs:
         - agents/{agent}.yaml
+        - agents/clis/{agent}
         - agents/sandbox.sb
         - experiments/{experiment}
       outputs:
@@ -625,6 +622,7 @@ pipeline:
       inputs:
         - scripts/run_experiment.py
         - agents/{agent}.yaml
+        - agents/clis/{agent}
         - agents/sandbox.sb
         - experiments/multi-agent/experiment.yaml
         - experiments/multi-agent/prompts
@@ -660,6 +658,7 @@ pipeline:
       inputs:
         - scripts/run_experiment.py
         - agents/{agent}.yaml
+        - agents/clis/{agent}
         - agents/sandbox.sb
         - experiments/use-calkit
         - experiments/reproducibility/fixtures/default
@@ -673,6 +672,7 @@ pipeline:
       script_path: scripts/score_code_quality.py
       environment: main
       inputs:
+        - agents
         - scripts/common.py
         - experiments/code-quality/fixtures
         - runs/code-quality
@@ -686,6 +686,7 @@ pipeline:
       script_path: scripts/score_reproducibility.py
       environment: main
       inputs:
+        - agents
         - scripts/common.py
         - runs/reproducibility
       outputs:
@@ -698,6 +699,7 @@ pipeline:
       script_path: scripts/score_multi_agent.py
       environment: main
       inputs:
+        - agents
         - scripts/common.py
         - scripts/sessions.py
         - experiments/multi-agent/experiment.yaml
@@ -715,6 +717,7 @@ pipeline:
       script_path: scripts/score_use_calkit.py
       environment: main
       inputs:
+        - agents
         - scripts/common.py
         - scripts/score_reproducibility.py
         - runs/use-calkit

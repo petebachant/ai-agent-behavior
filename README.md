@@ -35,7 +35,13 @@ directories, which lets a condition leave a command off the machine entirely
 write rule is DVC's machine-wide cache directory (`/Library/Caches/dvc`) in
 the `use-calkit` experiment, which Calkit uses through DVC and any user can
 write to on a normal machine; DVC keeps a separate subdirectory there for
-each repo path, and each run's path is unique. OpenCode connects to a
+each repo path, and each run's path is unique. Each agent's CLI is
+installed by the runner from the npm lock file in `agents/clis/<agent>`,
+outside the repo, rather than taken from whatever is installed on the
+machine, and a run is refused if the CLI reports any version other than
+the one in `agents/<agent>.yaml`; the scorers likewise refuse any run
+whose recorded version differs, so results never mix versions of an
+agent. OpenCode connects to a
 private server started for each run inside the sandbox, rather than the
 machine's shared background service. OpenCode 2 lets an agent end its turn
 while subagents or shell commands keep running in the background, and
@@ -151,14 +157,17 @@ later experiments ran, and OpenCode was upgraded from 1.19.0 to 2.1.4
 when logging in again. To keep each agent on one version across the
 project, OpenCode's runs of the original experiments were redone with
 2.1.4 and the same model; its 1.19.0 runs remain in the Git and DVC
-history. Claude Code meanwhile updated itself from 2.1.300 to 2.1.310,
-and 2.1.300 was no longer installed, so the original experiments'
-Claude Code runs are from 2.1.300 and the later experiments' from
-2.1.310 (each run's metadata records its version). The runner changed
-for OpenCode 2 in ways that don't affect the other agents, so the
-original experiments' Claude Code and Codex runs were kept rather than
-rerun, and their pipeline stages were recorded as current with the new
-runner.
+history. The runner then used whichever version of each CLI was
+installed, and Claude Code updated itself from 2.1.300 to 2.1.310 before
+the later experiments and to 2.1.311 partway through the multi-agent
+runs. So the runner was changed to install each CLI at a pinned version
+(see above), and Claude Code's runs at versions other than 2.1.310, all
+of its runs of the original experiments (2.1.300) and two of its
+multi-agent repetitions (2.1.311), were redone; the earlier runs remain
+in the Git and DVC history (each run's metadata records its version).
+The binaries the pinned npm packages install are byte-identical to those
+used before for Claude Code 2.1.310, Codex 0.162.1, and OpenCode 2.1.4,
+so the other runs were kept and their stages recorded as current.
 
 **OpenCode's model.** With OpenCode 2.1.4, the free DeepSeek v4.1 Flash
 model hit OpenCode Zen's free usage caps partway through the later
@@ -231,8 +240,8 @@ comparison is between what the literature says and what agents did:
 
 ## Running
 
-Requires macOS (for `sandbox-exec`), the agent CLIs at the versions in
-`calkit.yaml`, uv (to install Calkit into `use-calkit` runs), Codex and
+Requires macOS (for `sandbox-exec`), Node.js and npm (the runner
+installs each agent's CLI at its pinned version), uv (to install Calkit into `use-calkit` runs), Codex and
 OpenCode logged in, and a Claude Code token from
 `claude setup-token` in `.env` as `CLAUDE_CODE_OAUTH_TOKEN`. Then:
 
@@ -241,7 +250,7 @@ calkit run
 ```
 
 Agent runs are expensive and nondeterministic, so they are cached like any
-other stage and rerun only when the runner, sandbox, agent config, or an
+other stage and rerun only when the runner, sandbox, agent config or pinned CLI, or an
 experiment's prompt or fixtures change.
 
 Before committing new runs, check them for leaked credentials with

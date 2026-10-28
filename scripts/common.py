@@ -1,6 +1,7 @@
 """Helpers shared by the scoring scripts."""
 
 import json
+import re
 import tarfile
 from collections.abc import Iterator
 from contextlib import contextmanager
@@ -8,6 +9,7 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 
 import matplotlib.pyplot as plt
+import yaml
 
 REPO = Path(__file__).resolve().parent.parent
 
@@ -24,10 +26,24 @@ GRID = "#e4e3df"
 SURFACE = "#fcfcfb"
 
 
+def pinned_versions() -> dict[str, str]:
+    """Each agent's CLI version, from agents/<agent>.yaml."""
+    return {
+        p.stem: str(yaml.safe_load(p.read_text())["version"])
+        for p in (REPO / "agents").glob("*.yaml")
+    }
+
+
 def load_runs(experiment: str) -> list[dict]:
-    """Metadata for each run of an experiment, with paths to its files."""
+    """Metadata for each run of an experiment, with paths to its files.
+
+    Fails if any run's CLI reported a version other than its agent's pinned
+    one, so results never mix versions of an agent.
+    """
     base = REPO / "runs" / experiment
+    versions = pinned_versions()
     runs = []
+    wrong = []
     # Either runs/<experiment>/rep-<n>/... or, for experiments run one
     # agent per stage, runs/<experiment>/<agent>/rep-<n>/...
     for meta_path in sorted(base.glob("rep-*/sessions/*/*/meta.json")) + sorted(
@@ -42,7 +58,17 @@ def load_runs(experiment: str) -> list[dict]:
             rep_dir / "workspaces" / cond / f"{agent}.tar.gz"
         )
         meta["ok"] = meta["exit_code"] == 0 and not meta["timed_out"]
+        want = versions.get(agent, "")
+        if not re.search(
+            rf"(^|[^\d.]){re.escape(want)}($|[^\d.])", meta["cli_version"]
+        ):
+            wrong.append(f"{meta['run_id']}: {meta['cli_version']}")
         runs.append(meta)
+    if wrong:
+        raise SystemExit(
+            f"Runs of {experiment} not on their agent's pinned CLI version:\n"
+            + "\n".join(wrong)
+        )
     return runs
 
 
