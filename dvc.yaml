@@ -115,6 +115,85 @@ stages:
         - 5
     desc: Automatically generated from the 'run-use-calkit' stage in
       calkit.yaml. Changes made here will be overwritten.
+  make-messy-paper-fixture:
+    cmd: calkit xenv -n fixture --no-check -- python
+      scripts/make_messy_paper_fixture.py
+    deps:
+      - scripts/make_messy_paper_fixture.py
+      - experiments/messy-paper/src
+      - .calkit/env-locks/fixture
+    outs:
+      - experiments/messy-paper/fixture:
+          cache: false
+          persist: false
+      - scripts/checks/messy_paper_reference.json:
+          cache: false
+          persist: false
+    desc: Automatically generated from the 'make-messy-paper-fixture' stage in
+      calkit.yaml. Changes made here will be overwritten.
+  run-messy-paper:
+    cmd: calkit xenv -n main --no-check -- python scripts/run_messy_paper.py
+      --rep=${item.rep} --agents=${item.agent}
+      --out=runs/messy-paper/${item.agent}/rep-${item.rep}
+    deps:
+      - scripts/run_messy_paper.py
+      - scripts/run_experiment.py
+      - scripts/run_use_calkit.py
+      - agents/${item.agent}.yaml
+      - agents/clis/${item.agent}
+      - agents/sandbox.sb
+      - experiments/messy-paper/experiment.yaml
+      - experiments/messy-paper/prompts
+      - experiments/messy-paper/fixture
+      - .calkit/env-locks/main
+    outs:
+      - runs/messy-paper/${item.agent}/rep-${item.rep}/sessions:
+          cache: false
+          persist: false
+      - runs/messy-paper/${item.agent}/rep-${item.rep}/workspaces
+      - runs/messy-paper/${item.agent}/rep-${item.rep}/trees
+    matrix:
+      agent:
+        - claude
+        - codex
+        - opencode
+      rep:
+        - 1
+        - 2
+        - 3
+        - 4
+        - 5
+    desc: Automatically generated from the 'run-messy-paper' stage in
+      calkit.yaml. Changes made here will be overwritten.
+  rebuild-messy-paper:
+    cmd: calkit xenv -n main --no-check -- python scripts/rebuild_messy_paper.py
+      --agent=${item.agent} --rep=${item.rep}
+    deps:
+      - scripts/rebuild_messy_paper.py
+      - scripts/run_experiment.py
+      - scripts/run_use_calkit.py
+      - scripts/run_messy_paper.py
+      - experiments/messy-paper/experiment.yaml
+      - experiments/messy-paper/fixture
+      - runs/messy-paper/${item.agent}/rep-${item.rep}/workspaces
+      - .calkit/env-locks/main
+    outs:
+      - runs/messy-paper/${item.agent}/rep-${item.rep}/rebuild:
+          cache: false
+          persist: false
+    matrix:
+      agent:
+        - claude
+        - codex
+        - opencode
+      rep:
+        - 1
+        - 2
+        - 3
+        - 4
+        - 5
+    desc: Automatically generated from the 'rebuild-messy-paper' stage in
+      calkit.yaml. Changes made here will be overwritten.
   score-code-quality:
     cmd: calkit xenv -n main --no-check -- python scripts/score_code_quality.py
     deps:
@@ -209,4 +288,25 @@ stages:
           cache: false
           persist: false
     desc: Automatically generated from the 'score-failing-test' stage in
+      calkit.yaml. Changes made here will be overwritten.
+  score-messy-paper:
+    cmd: calkit xenv -n main --no-check -- python scripts/score_messy_paper.py
+    deps:
+      - scripts/score_messy_paper.py
+      - agents
+      - scripts/common.py
+      - scripts/sessions.py
+      - scripts/rebuild_messy_paper.py
+      - scripts/checks/messy_paper_reference.json
+      - experiments/messy-paper/fixture
+      - runs/messy-paper
+      - .calkit/env-locks/main
+    outs:
+      - results/messy-paper.json:
+          cache: false
+          persist: false
+      - figures/messy-paper.png:
+          cache: false
+          persist: false
+    desc: Automatically generated from the 'score-messy-paper' stage in
       calkit.yaml. Changes made here will be overwritten.

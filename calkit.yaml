@@ -648,6 +648,116 @@ questions:
       to change a correct test, and it was alongside fixing the code. The
       question wasn't piloted with agents (see the README).
 
+  - name: messy-paper
+    question: >-
+      For a messy computational research project, does telling an agent to
+      use Calkit when it writes the paper make the paper reproducible and
+      quicker to revise?
+    hypothesis: >-
+      Yes for reproducibility, partly for revising. Asked to write a paper
+      from a messy project, agents told to "Use Calkit." will leave a
+      reproducible paper (under version control, committed, with an
+      environment that covers the code, and rebuilt by one command on a
+      fresh machine) in more than half of runs, and agents not told in
+      fewer than 20%, since agents rarely adopt these practices unprompted
+      (see the reproducibility question), as researchers rarely do
+      [@trisovic2022], and mostly do when told to use Calkit (see the
+      use-calkit question). When a fresh agent then addresses reviews that
+      change every Reynolds number, revisions will leave a stale one in the
+      paper about as often in both conditions (within 20 percentage
+      points), since Calkit reruns the code and remakes the figures but
+      agents type numbers into the text by hand either way, and numbers
+      copied by hand drift from the analysis they come from [@nuijten2016].
+      Revising will take fewer tokens with Calkit (a lower median), since
+      one command reruns everything rather than the agent working out which
+      scripts to run in which order [@molder2021], but won't be quicker in
+      wall time (a median ratio of at least 1), since on a fresh machine,
+      rebuilding the pipeline's environments and pulling its TeX image
+      takes minutes.
+    approach: >-
+      Each agent is given, five times per condition and each time in a
+      fresh sandboxed home on a machine with Calkit and Docker but no TeX,
+      a generated tow-tank drag project in a messy state (raw data in two
+      formats, chained scripts with a hard-coded path, a notebook, a stale
+      figure, numbers typed into notes, an incomplete requirements.txt, and
+      no Git) and asked to write a draft paper, with "Use Calkit." added in
+      one condition; a fresh agent then addresses reviews that change every
+      Reynolds number, and each paper is checked for a one-command rebuild
+      on a fresh machine, version control, commits, and an environment
+      covering the code, and each revision for stale and updated Reynolds
+      numbers, wall time, and tokens.
+    answer:
+      if held: >-
+        Yes for reproducibility, and partly for revising, as hypothesized.
+        Asked to write a paper from a messy project, agents told to "Use
+        Calkit." left a reproducible paper in {ck_repro:.0%} of {n} runs
+        (Claude {claude_ck:.0%} of its runs, Codex {codex_ck:.0%}, and
+        OpenCode {opencode_ck:.0%}), against {pl_repro:.0%} without. When a
+        fresh agent then addressed reviews that changed every Reynolds
+        number, {ck_stale:.0%} of revisions with Calkit and {pl_stale:.0%}
+        without left a stale one in the paper, and revising with Calkit
+        took {tok:.2f}x the median tokens and {dur:.2f}x the median wall
+        time.
+      elif ck_ok and pl_low: >-
+        Yes for reproducibility, as hypothesized, but revising didn't go as
+        hypothesized. Asked to write a paper from a messy project, agents
+        told to "Use Calkit." left a reproducible paper in {ck_repro:.0%}
+        of {n} runs (Claude {claude_ck:.0%} of its runs, Codex
+        {codex_ck:.0%}, and OpenCode {opencode_ck:.0%}), against
+        {pl_repro:.0%} without. When a fresh agent then addressed reviews
+        that changed every Reynolds number, {ck_stale:.0%} of revisions
+        with Calkit and {pl_stale:.0%} without left a stale one in the
+        paper, and revising with Calkit took {tok:.2f}x the median tokens
+        and {dur:.2f}x the median wall time.
+      elif ck_repro >= pl_repro + 0.2: >-
+        More often with Calkit, but less often than hypothesized. Asked to
+        write a paper from a messy project, agents told to "Use Calkit."
+        left a reproducible paper in {ck_repro:.0%} of {n} runs (Claude
+        {claude_ck:.0%} of its runs, Codex {codex_ck:.0%}, and OpenCode
+        {opencode_ck:.0%}), against {pl_repro:.0%} without. When a fresh
+        agent then addressed reviews that changed every Reynolds number,
+        {ck_stale:.0%} of revisions with Calkit and {pl_stale:.0%} without
+        left a stale one in the paper, and revising with Calkit took
+        {tok:.2f}x the median tokens and {dur:.2f}x the median wall time.
+      else: >-
+        No, contrary to the hypothesis. Asked to write a paper from a messy
+        project, agents told to "Use Calkit." left a reproducible paper in
+        {ck_repro:.0%} of {n} runs, against {pl_repro:.0%} without. When a
+        fresh agent then addressed reviews that changed every Reynolds
+        number, {ck_stale:.0%} of revisions with Calkit and {pl_stale:.0%}
+        without left a stale one in the paper, and revising with Calkit
+        took {tok:.2f}x the median tokens and {dur:.2f}x the median wall
+        time.
+    evidence:
+      - kind: figure
+        path: figures/messy-paper.png
+      - kind: result
+        path: results/messy-paper.json
+        values:
+          held: hypothesis.all
+          ck_ok: hypothesis.calkit_reproducible
+          pl_low: hypothesis.plain_not_reproducible
+          n: summary.calkit.write.overall.n_runs
+          per_agent: summary.calkit.write.by_agent.claude.n_runs
+          ck_repro: summary.calkit.write.overall.frac_reproducible
+          pl_repro: summary.plain.write.overall.frac_reproducible
+          claude_ck: summary.calkit.write.by_agent.claude.frac_reproducible
+          codex_ck: summary.calkit.write.by_agent.codex.frac_reproducible
+          opencode_ck: summary.calkit.write.by_agent.opencode.frac_reproducible
+          ck_stale: summary.calkit.revise.overall.frac_stale
+          pl_stale: summary.plain.revise.overall.frac_stale
+          tok: comparison.overall.ratio_median_tokens
+          dur: comparison.overall.ratio_median_duration
+    notes: >-
+      Pre-registered with the answer's wording, which was written before
+      any runs (as opposed to the earlier questions, whose wording was
+      written after their results). Each agent ran {per_agent:g} times per
+      condition. The thresholds, the checks, and the hidden reference
+      values (scripts/checks/messy_paper_reference.json) were fixed before
+      any runs; the question wasn't piloted with agents, and the runner,
+      rebuild check, and scorer were tested on prompts unrelated to the
+      task and on hand-made workspaces (see the README).
+
 requirements:
   - kind: app
     name: sandbox-exec
@@ -673,6 +783,16 @@ requirements:
     check_command: test -f ~/.codex/auth.json
     setup_command: codex login
     description: Codex credentials, copied into each run's fresh home.
+  - kind: app
+    name: colima
+    description: >-
+      Runs the Docker VMs the messy-paper experiment's agents use, one per
+      concurrent run, and a pull-through cache for Docker Hub.
+  - kind: app
+    name: docker
+    description: >-
+      The Docker CLI, which the messy-paper runner uses to prune each
+      run's VM and the agents use from inside the sandbox.
   - kind: setup
     name: opencode-auth
     check_command: opencode auth list --standalone | grep -q stored
@@ -686,6 +806,13 @@ environments:
   main:
     kind: uv-venv
     path: requirements.txt
+    python: "3.13"
+
+  # Only for generating the messy-paper experiment's research project, kept
+  # apart so it doesn't touch the main environment every other stage uses
+  fixture:
+    kind: uv-venv
+    path: envs/fixture-requirements.txt
     python: "3.13"
 
 pipeline:
@@ -816,6 +943,91 @@ pipeline:
           storage: git
         - runs/use-calkit/{agent}/rep-{rep}/workspaces
         - runs/use-calkit/{agent}/rep-{rep}/trees
+    make-messy-paper-fixture:
+      kind: python-script
+      description: >-
+        Generate the messy-paper experiment's research project, running the
+        lab's own scripts and notebook to make its outputs, and the hidden
+        reference values its scorer uses.
+      script_path: scripts/make_messy_paper_fixture.py
+      environment: fixture
+      inputs:
+        - experiments/messy-paper/src
+      outputs:
+        - path: experiments/messy-paper/fixture
+          storage: git
+        - path: scripts/checks/messy_paper_reference.json
+          storage: git
+    run-messy-paper:
+      kind: python-script
+      description: >-
+        Run each agent on the messy-paper experiment, writing the paper and
+        then, as a fresh agent, revising it, saving full sessions and final
+        workspaces.
+      script_path: scripts/run_messy_paper.py
+      args:
+        - --rep={rep}
+        - --agents={agent}
+        - --out=runs/messy-paper/{agent}/rep-{rep}
+      environment: main
+      iterate_over:
+        - arg_name: agent
+          values:
+            - claude
+            - codex
+            - opencode
+        - arg_name: rep
+          values:
+            - range:
+                start: 1
+                stop: 6
+      # The rebuild check and reference values aren't inputs, so changing
+      # them rescores without rerunning agents
+      inputs:
+        - scripts/run_experiment.py
+        - scripts/run_use_calkit.py
+        - agents/{agent}.yaml
+        - agents/clis/{agent}
+        - agents/sandbox.sb
+        - experiments/messy-paper/experiment.yaml
+        - experiments/messy-paper/prompts
+        - experiments/messy-paper/fixture
+      outputs:
+        - path: runs/messy-paper/{agent}/rep-{rep}/sessions
+          storage: git
+        - runs/messy-paper/{agent}/rep-{rep}/workspaces
+        - runs/messy-paper/{agent}/rep-{rep}/trees
+    rebuild-messy-paper:
+      kind: python-script
+      description: >-
+        Try to rebuild each messy-paper run's paper with one command on a
+        fresh machine, with no agent.
+      script_path: scripts/rebuild_messy_paper.py
+      args:
+        - --agent={agent}
+        - --rep={rep}
+      environment: main
+      iterate_over:
+        - arg_name: agent
+          values:
+            - claude
+            - codex
+            - opencode
+        - arg_name: rep
+          values:
+            - range:
+                start: 1
+                stop: 6
+      inputs:
+        - scripts/run_experiment.py
+        - scripts/run_use_calkit.py
+        - scripts/run_messy_paper.py
+        - experiments/messy-paper/experiment.yaml
+        - experiments/messy-paper/fixture
+        - runs/messy-paper/{agent}/rep-{rep}/workspaces
+      outputs:
+        - path: runs/messy-paper/{agent}/rep-{rep}/rebuild
+          storage: git
     score-code-quality:
       kind: python-script
       script_path: scripts/score_code_quality.py
@@ -891,4 +1103,21 @@ pipeline:
         - path: results/failing-test.json
           storage: git
         - path: figures/failing-test.png
+          storage: git
+    score-messy-paper:
+      kind: python-script
+      script_path: scripts/score_messy_paper.py
+      environment: main
+      inputs:
+        - agents
+        - scripts/common.py
+        - scripts/sessions.py
+        - scripts/rebuild_messy_paper.py
+        - scripts/checks/messy_paper_reference.json
+        - experiments/messy-paper/fixture
+        - runs/messy-paper
+      outputs:
+        - path: results/messy-paper.json
+          storage: git
+        - path: figures/messy-paper.png
           storage: git
