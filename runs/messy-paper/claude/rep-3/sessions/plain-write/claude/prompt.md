@@ -1,0 +1,1 @@
+This folder has my tow tank drag measurements and everything I've done with them so far. I'm about to start writing a paper on this work. Can you put together a first draft of the paper from what's here?

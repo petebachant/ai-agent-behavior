@@ -1,0 +1,1030 @@
+cd.csv
+forces.csv
+summary.json
+run_id,date,cylinder,diameter_mm,speed_m_s,water_temp_c,notes
+1,2025-10-14,1in,25.4,0.2,16.9,
+2,2025-10-14,1in,25.4,0.3,17.1,
+3,2025-10-14,1in,25.4,0.4,17.1,
+4,2025-10-14,1in,25.4,0.5,17.1,small wave from previous run
+5,2025-10-14,1in,25.4,0.6,17.1,
+6,2025-10-14,1in,25.4,0.7,17.4,
+7,2025-10-14,1in,25.4,0.8,17.4,
+8,2025-10-14,1in,25.4,0.9,17.5,
+9,2025-10-14,1in,25.4,1.0,17.6,
+10,2025-10-14,1in,25.4,1.1,17.6,
+11,2025-11-03,2in,50.8,0.2,15.0,
+12,2025-11-03,2in,50.8,0.3,15.1,
+13,2025-11-03,2in,50.8,0.4,15.1,
+14,2025-11-03,2in,50.8,0.5,15.2,
+15,2025-11-03,2in,50.8,0.6,15.1,
+16,2025-11-03,2in,50.8,0.7,15.3,
+17,2025-11-03,2in,50.8,0.8,15.3,zero off after run?
+18,2025-11-03,2in,50.8,0.9,15.5,
+19,2025-11-03,2in,50.8,1.0,15.4,
+20,2025-11-03,2in,50.8,1.1,15.6,
+21,2026-03-12,1.5in,38.1,0.2,13.7,
+22,2026-03-12,1.5in,38.1,0.3,13.8,
+23,2026-03-12,1.5in,38.1,0.4,13.8,
+24,2026-03-12,1.5in,38.1,0.5,14.0,
+25,2026-03-12,1.5in,38.1,0.6,14.1,
+26,2026-03-12,1.5in,38.1,0.7,14.0,
+27,2026-03-12,1.5in,38.1,0.8,14.2,
+28,2026-03-12,1.5in,38.1,0.9,14.2,
+29,2026-03-12,1.5in,38.1,1.0,14.3,
+30,2026-03-12,1.5in,38.1,1.1,14.3,
+=== scripts/compute_cd.py
+"""Compute drag coefficient, Reynolds number, and related parameters per run.
+
+Writes a per-run table and a JSON summary whose keys are referenced from the
+paper via the json-to-latex stage.
+"""
+
+import json
+
+import numpy as np
+import pandas as pd
+
+from towtank import G, POST_WINDOW, STEADY_WINDOW, TARE_WINDOW
+
+L_SUB = 0.60  # Submerged cylinder length (m)
+TANK_WIDTH = 0.90  # m
+TANK_DEPTH = 0.75  # m
+# Runs whose load cell zero moved by more than this over the run are excluded
+MAX_ZERO_DRIFT_N = 0.05
+
+# Labels used in the run log, mapped to the key stems used in the paper
+CYLINDERS = {"1in": "OneIn", "1.5in": "OnePointFiveIn", "2in": "TwoIn"}
+
+
+def water_density(temp_c):
+    """Density of air-free pure water (kg/m^3), Tanaka et al. (2001)."""
+    a1, a2, a3, a4, a5 = -3.983035, 301.797, 522528.9, 69.34881, 999.974950
+    t = temp_c
+    return a5 * (1 - (t + a1) ** 2 * (t + a2) / (a3 * (t + a4)))
+
+
+def water_viscosity(temp_c):
+    """Dynamic viscosity of water (Pa s) from the Vogel equation."""
+    return 2.414e-5 * 10 ** (247.8 / (temp_c + 273.15 - 140.0))
+
+
+forces = pd.read_csv("results/forces.csv")
+log = pd.read_csv("data/run_log.csv")
+df = log.merge(forces, left_on="run_id", right_on="run")
+
+d = df.diameter_mm / 1000
+u = df.speed_m_s
+df["rho"] = water_density(df.water_temp_c)
+df["nu"] = water_viscosity(df.water_temp_c) / df.rho
+df["Re"] = u * d / df.nu
+df["Fr_D"] = u / np.sqrt(G * d)
+df["Cd"] = df.F_mean_N / (0.5 * df.rho * u**2 * d * L_SUB)
+# Cd with the fluctuating force std, to show the unsteadiness from shedding
+df["Cd_std"] = df.F_std_N / (0.5 * df.rho * u**2 * d * L_SUB)
+df["excluded"] = df.zero_drift_N.abs() > MAX_ZERO_DRIFT_N
+
+cols = [
+    "run_id", "date", "cylinder", "diameter_mm", "speed_m_s",
+    "water_temp_c", "rho", "nu", "Re", "Fr_D", "F_mean_N", "F_std_N",
+    "zero_drift_N", "Cd", "Cd_std", "excluded",
+]
+df[cols].to_csv("results/cd.csv", index=False)
+
+good = df[~df.excluded]
+excluded = df[df.excluded]
+summary = {
+    "NRuns": int(len(df)),
+    "NRunsUsed": int(len(good)),
+    "NRunsExcluded": int(len(excluded)),
+    "ExcludedRuns": ", ".join(str(r) for r in excluded.run_id),
+    "ExcludedZeroDrift": ", ".join(
+        f"{x:.1f}" for x in excluded.zero_drift_N
+    ),
+    "MaxZeroDriftThreshold": MAX_ZERO_DRIFT_N,
+    "MaxZeroDriftUsed": round(good.zero_drift_N.abs().max(), 3),
+    "TareStart": TARE_WINDOW[0],
+    "TareEnd": TARE_WINDOW[1],
+    "SteadyStart": STEADY_WINDOW[0],
+    "SteadyEnd": STEADY_WINDOW[1],
+    "PostStart": POST_WINDOW[0],
+    "PostEnd": POST_WINDOW[1],
+    "SubmergedLength": L_SUB,
+    "TankWidth": TANK_WIDTH,
+    "TankDepth": TANK_DEPTH,
+    "SpeedMin": float(df.speed_m_s.min()),
+    "SpeedMax": float(df.speed_m_s.max()),
+    "NSpeeds": int(df.speed_m_s.nunique()),
+    "TempMin": float(df.water_temp_c.min()),
+    "TempMax": float(df.water_temp_c.max()),
+    "ReMin": int(round(good.Re.min(), -2)),
+    "ReMax": int(round(good.Re.max(), -2)),
+    "FrMin": round(good.Fr_D.min(), 2),
+    "FrMax": round(good.Fr_D.max(), 2),
+    "SensOld": round(df[df.date < "2026-03-10"].sens_V_per_N.iloc[0], 5),
+    "SensNew": round(df[df.date >= "2026-03-10"].sens_V_per_N.iloc[0], 5),
+    "CalResidMax": round(df.cal_resid_max_N.max(), 3),
+    "CdMeanAll": round(good.Cd.mean(), 3),
+    "CdStdAll": round(good.Cd.std(), 3),
+    "CdMinAll": round(good.Cd.min(), 3),
+    "CdMaxAll": round(good.Cd.max(), 3),
+    "CdExcluded": ", ".join(f"{x:.2f}" for x in excluded.Cd),
+    "CdFluctMax": round(good.Cd_std.max(), 2),
+}
+for label, stem in CYLINDERS.items():
+    g = df[df.cylinder == label]
+    gg = good[good.cylinder == label]
+    dia = g.diameter_mm.iloc[0] / 1000
+    summary[f"D{stem}"] = float(g.diameter_mm.iloc[0])
+    summary[f"Date{stem}"] = g.date.iloc[0]
+    summary[f"Temp{stem}"] = round(g.water_temp_c.mean(), 1)
+    summary[f"N{stem}"] = int(len(gg))
+    summary[f"CdMean{stem}"] = round(gg.Cd.mean(), 3)
+    summary[f"CdStd{stem}"] = round(gg.Cd.std(), 3)
+    summary[f"ReMin{stem}"] = int(round(gg.Re.min(), -2))
+    summary[f"ReMax{stem}"] = int(round(gg.Re.max(), -2))
+    summary[f"AspectRatio{stem}"] = round(L_SUB / dia, 1)
+    # Width blockage D/W and frontal-area blockage D L / (W H), in percent
+    summary[f"BlockageWidth{stem}"] = round(100 * dia / TANK_WIDTH, 1)
+    summary[f"BlockageArea{stem}"] = round(
+        100 * dia * L_SUB / (TANK_WIDTH * TANK_DEPTH), 1
+    )
+
+with open("results/summary.json", "w") as f:
+    json.dump(summary, f, indent=2)
+=== scripts/plot_cd.py
+"""Plot drag coefficient versus Reynolds number for all cylinders."""
+
+import matplotlib.pyplot as plt
+from matplotlib.ticker import FixedLocator, NullFormatter
+import pandas as pd
+
+from plotstyle import MARKERS, MUTED, SERIES, TEXT_SECONDARY
+
+df = pd.read_csv("results/cd.csv")
+
+fig, ax = plt.subplots(figsize=(3.5, 2.6))
+order = df.drop_duplicates("cylinder").sort_values("diameter_mm")
+for i, (_, c) in enumerate(order.iterrows()):
+    g = df[(df.cylinder == c.cylinder) & ~df.excluded]
+    ax.plot(
+        g.Re, g.Cd, MARKERS[i], color=SERIES[i], ms=5, mec="white", mew=0.6,
+        label=f"$D$ = {c.diameter_mm:.1f} mm", zorder=3,
+    )
+ex = df[df.excluded]
+if len(ex):
+    ax.plot(
+        ex.Re, ex.Cd, "x", color=MUTED, ms=5, mew=1.0,
+        label="excluded (zero drift)", zorder=3,
+    )
+    for _, r in ex.iterrows():
+        ax.annotate(
+            f"run {r.run_id}", (r.Re, r.Cd), xytext=(5, 0),
+            textcoords="offset points", va="center", fontsize=7,
+            color=TEXT_SECONDARY,
+        )
+ax.set_xscale("log")
+ax.set_xlabel("$Re_D$")
+ax.set_ylabel("$C_D$")
+ticks = [5e3, 1e4, 2e4, 5e4]
+ax.xaxis.set_major_locator(FixedLocator(ticks))
+ax.set_xticklabels([f"{x:,.0f}" for x in ticks])
+ax.xaxis.set_minor_formatter(NullFormatter())
+ax.legend(loc="lower left", bbox_to_anchor=(0, 1.0), ncol=2, borderaxespad=0.2)
+fig.savefig("figures/cd-vs-re.pdf")
+=== scripts/plot_timeseries.py
+"""Plot force time series for a typical run and for the excluded run(s)."""
+
+import matplotlib.pyplot as plt
+import pandas as pd
+
+from plotstyle import GRID, SERIES, TEXT_SECONDARY
+from towtank import (
+    POST_WINDOW,
+    STEADY_WINDOW,
+    TARE_WINDOW,
+    calibration,
+    read_run,
+)
+
+TYPICAL_RUN = 5
+
+df = pd.read_csv("results/cd.csv")
+runs = [TYPICAL_RUN] + list(df[df.excluded].run_id)
+
+fig, axes = plt.subplots(
+    len(runs), 1, figsize=(3.5, 1.6 * len(runs)), sharex=True,
+    squeeze=False,
+)
+for ax, run in zip(axes[:, 0], runs):
+    r = df[df.run_id == run].iloc[0]
+    sens, _ = calibration(r.date)
+    t, v = read_run(r.date, run)
+    tare = v[(t >= TARE_WINDOW[0]) & (t < TARE_WINDOW[1])].mean()
+    ax.plot(t, (v - tare) / sens, lw=0.5, color=SERIES[0])
+    for w, label in [
+        (TARE_WINDOW, "zero"), (STEADY_WINDOW, "steady"),
+        (POST_WINDOW, "post"),
+    ]:
+        ax.axvspan(*w, color=GRID, alpha=0.7, lw=0, zorder=0)
+        ax.text(
+            sum(w) / 2, 1.0, label, transform=ax.get_xaxis_transform(),
+            ha="center", va="bottom", fontsize=7, color=TEXT_SECONDARY,
+        )
+    ax.axhline(0, color=TEXT_SECONDARY, lw=0.5)
+    ax.set_ylabel("$F$ (N)")
+    ax.set_title(
+        f"Run {run}: $D$ = {r.diameter_mm:.1f} mm, "
+        f"$U$ = {r.speed_m_s:.1f} m/s",
+        fontsize=8, loc="left", pad=10,
+    )
+axes[-1, 0].set_xlabel("$t$ (s)")
+fig.tight_layout()
+fig.savefig("figures/force-timeseries.pdf")
+=== scripts/plotstyle.py
+"""Common figure styling for the paper."""
+
+import matplotlib as mpl
+
+# First three categorical slots of the reference palette (validated
+# all-pairs for scatter plots); marker shape is the secondary encoding
+SERIES = ["#2a78d6", "#eb6834", "#1baf7a"]
+MARKERS = ["o", "s", "^"]
+TEXT = "#0b0b0b"
+TEXT_SECONDARY = "#52514e"
+MUTED = "#9a9893"
+GRID = "#e4e3df"
+
+mpl.rcParams.update(
+    {
+        "font.family": "serif",
+        "font.size": 9,
+        "axes.labelsize": 9,
+        "axes.edgecolor": TEXT_SECONDARY,
+        "axes.labelcolor": TEXT,
+        "axes.linewidth": 0.6,
+        "axes.spines.top": False,
+        "axes.spines.right": False,
+        "axes.grid": True,
+        "grid.color": GRID,
+        "grid.linewidth": 0.5,
+        "xtick.color": TEXT_SECONDARY,
+        "ytick.color": TEXT_SECONDARY,
+        "xtick.labelsize": 8,
+        "ytick.labelsize": 8,
+        "legend.fontsize": 8,
+        "legend.frameon": False,
+        "savefig.bbox": "tight",
+    }
+)
+=== scripts/process_runs.py
+"""Reduce every raw run to a mean drag force.
+
+Replaces process.py and process_b3.py: one code path for both DAQ formats,
+with the sensitivity fitted from the calibration valid for each batch.
+"""
+
+import pandas as pd
+
+from towtank import (
+    BATCHES,
+    POST_WINDOW,
+    STEADY_WINDOW,
+    TARE_WINDOW,
+    calibration,
+    read_run,
+    window,
+)
+
+log = pd.read_csv("data/run_log.csv")
+
+rows = []
+for _, r in log.iterrows():
+    batch = r.date
+    if batch not in BATCHES:
+        raise ValueError(f"No batch config for {batch}")
+    sens, cal_resid_N = calibration(batch)
+    t, v = read_run(batch, r.run_id)
+    tare = v[window(t, TARE_WINDOW)].mean()
+    post = v[window(t, POST_WINDOW)].mean()
+    force = (v - tare) / sens
+    steady = force[window(t, STEADY_WINDOW)]
+    rows.append(
+        {
+            "run": r.run_id,
+            "sens_V_per_N": sens,
+            "cal_resid_max_N": cal_resid_N,
+            "F_mean_N": steady.mean(),
+            "F_std_N": steady.std(),
+            # Shift of the zero over the run; a large value means the
+            # tare can't be trusted
+            "zero_drift_N": (post - tare) / sens,
+        }
+    )
+
+pd.DataFrame(rows).to_csv("results/forces.csv", index=False)
+=== scripts/towtank.py
+"""Shared helpers for reading tow tank runs and converting them to force."""
+
+import os
+
+import numpy as np
+import pandas as pd
+
+# Each test day, with its DAQ file format and the load cell calibration that
+# was valid at the time (the load cell was remounted and recalibrated on
+# 2026-03-10, see notes.md)
+BATCHES = {
+    "2025-10-14": {"fmt": "v2.1", "cal": "loadcell_2025-09.csv"},
+    "2025-11-03": {"fmt": "v2.1", "cal": "loadcell_2025-09.csv"},
+    "2026-03-12": {"fmt": "semicolon", "cal": "loadcell_2026-03.csv"},
+}
+RAW_DIR = "data/raw"
+CAL_DIR = "data/calibration"
+G = 9.81
+
+# Time windows (s): load cell zero before the carriage starts, steady towing,
+# and the zero after the carriage has stopped
+TARE_WINDOW = (0.0, 1.0)
+STEADY_WINDOW = (3.0, 8.0)
+POST_WINDOW = (11.0, 12.0)
+
+
+def run_path(batch, run):
+    return os.path.join(RAW_DIR, batch, f"run_{run:03d}.csv")
+
+
+def read_run(batch, run):
+    """Return time (s) and load cell voltage (V) for one run."""
+    fmt = BATCHES[batch]["fmt"]
+    path = run_path(batch, run)
+    if fmt == "v2.1":
+        d = pd.read_csv(path, comment="#")
+        return d.time_s.values, d.loadcell_V.values
+    elif fmt == "semicolon":
+        d = pd.read_csv(path, sep=";")
+        return d.t.values, d.V.values
+    raise ValueError(f"Unknown DAQ format {fmt}")
+
+
+def calibration(batch):
+    """Fit V = sens * F + offset to the static calibration for a batch.
+
+    Returns sensitivity (V/N) and the maximum fit residual expressed in N.
+    """
+    cal = pd.read_csv(os.path.join(CAL_DIR, BATCHES[batch]["cal"]))
+    force = cal.mass_g / 1000 * G
+    sens, offset = np.polyfit(force, cal.voltage_V, 1)
+    resid = cal.voltage_V - (sens * force + offset)
+    return sens, np.abs(resid).max() / sens
+
+
+def window(t, lo_hi):
+    return (t >= lo_hi[0]) & (t < lo_hi[1])
+% First draft, written with AI assistance (Claude) from the project's data,
+% scripts, and notes. Every \todo marks something the authors need to supply
+% or decide. Numbers come from results/summary.json via \result[...]; do not
+% type computed values into this file.
+\documentclass[11pt]{article}
+
+\usepackage[margin=1in]{geometry}
+\usepackage{graphicx}
+\usepackage{amsmath,amssymb}
+\usepackage{booktabs}
+\usepackage{siunitx}
+\usepackage[numbers]{natbib}
+\usepackage[colorinlistoftodos,textsize=footnotesize]{todonotes}
+\usepackage{hyperref}
+
+\input{generated-results}
+
+\newcommand{\Rey}{\mathit{Re}_D}
+\newcommand{\Fr}{\mathit{Fr}_D}
+
+\title{Drag on smooth circular cylinders towed through a water tank}
+\author{\todo[inline]{Authors and affiliations}}
+\date{\today}
+
+\begin{document}
+\maketitle
+
+\begin{abstract}
+We report mean drag measurements on three smooth circular cylinders, of
+diameter \result[DOneIn], \result[DOnePointFiveIn], and
+\result[DTwoIn]~\si{mm}, towed vertically through a water tank at
+\result[NSpeeds] speeds between \result[SpeedMin] and
+\result[SpeedMax]~\si{m/s}. The resulting diameter-based Reynolds numbers
+span \result[ReMin] to \result[ReMax], within the subcritical regime. Drag
+was measured with a single-axis load cell, and the drag coefficient was
+computed using fluid properties evaluated at the measured water temperature
+of each run. Of \result[NRuns] runs, \result[NRunsExcluded] was excluded for
+load cell zero drift. The mean drag coefficient over the remaining
+\result[NRunsUsed] runs is \result[CdMeanAll] (standard deviation
+\result[CdStdAll]), and the per-cylinder means of \result[CdMeanOneIn],
+\result[CdMeanOnePointFiveIn], and \result[CdMeanTwoIn] agree within their
+run-to-run scatter.
+\todo[inline]{Add one sentence on the main conclusion once the blockage
+correction and uncertainty analysis are settled (see Sect.~\ref{sec:discussion}).}
+\end{abstract}
+
+\listoftodos
+
+\section{Introduction}
+\label{sec:intro}
+
+The flow past a circular cylinder is one of the canonical problems of
+bluff-body aerodynamics and hydrodynamics. Over the subcritical range of
+Reynolds number, roughly $10^3 \lesssim \Rey \lesssim 2\times10^5$, the
+boundary layer separates laminar, the wake sheds vortices periodically, and
+the drag coefficient of a nominally two-dimensional cylinder is nearly
+constant~\citep{Wieselsberger1921,Roshko1961,Williamson1996,Zdravkovich1997}.
+Measured values in practice also depend on blockage, aspect ratio, and end
+conditions~\citep{WestApelt1982,Zdravkovich1997}.
+\todo[inline]{Motivation: why these measurements? E.g., facility
+commissioning, validation data for a course or for simulations, a
+baseline for a later study. State the gap this paper fills and its
+contribution.}
+
+This paper describes tow tank measurements of the mean drag on three smooth
+cylinders over \result[ReMin]~$\le \Rey \le$~\result[ReMax], the data
+reduction used to obtain drag coefficients, and how the results compare with
+the classical data.
+
+\section{Experimental setup}
+\label{sec:setup}
+
+\subsection{Tow tank and models}
+
+The experiments were performed in a tow tank of width
+\result[TankWidth]~\si{m} and water depth \result[TankDepth]~\si{m}.
+\todo[inline]{Tank length, carriage drive and speed control, speed
+accuracy, acceleration profile, and wait time between runs. The run log
+notes a small wave from the previous run during run 4, so the settling time
+is worth stating.}
+Three smooth circular cylinders of nominal diameter 1, 1.5, and 2~in
+(\result[DOneIn], \result[DOnePointFiveIn], and \result[DTwoIn]~\si{mm})
+were mounted vertically beneath the carriage, piercing the free surface,
+with a submerged length of $L = \result[SubmergedLength]~\si{m}$. The
+resulting submerged aspect ratios $L/D$ are listed in
+Table~\ref{tab:summary}.
+\todo[inline]{Cylinder material and surface finish; how the cylinder is
+mounted to the load cell; the condition at the lower end (free end, end
+plate, gap to the tank floor).}
+
+\subsection{Force measurement}
+
+Drag was measured with a single-axis load cell sampled at 200~\si{Hz}.
+\todo[inline]{Load cell model, range, and amplifier; DAQ hardware. The DAQ
+software was updated between the second and third test days, changing the
+file format but not, as far as we know, the acquisition. Confirm.}
+The load cell was calibrated statically by hanging known masses up to
+2000~\si{g}, loading and then unloading. A linear fit of voltage against
+applied force gave a sensitivity of \result[SensOld]~\si{V/N} for the first
+two test days. The load cell was remounted before the third test day and
+recalibrated, giving \result[SensNew]~\si{V/N}. The largest calibration fit
+residual was equivalent to \result[CalResidMax]~\si{N}.
+
+\subsection{Test matrix}
+
+Each cylinder was tested on a single day, at \result[NSpeeds] carriage
+speeds from \result[SpeedMin] to \result[SpeedMax]~\si{m/s}
+(Table~\ref{tab:summary}). The water temperature was recorded for each run
+and ranged from \result[TempMin] to \result[TempMax]~\si{\celsius} across
+the campaign.
+
+\section{Data reduction}
+\label{sec:reduction}
+
+Figure~\ref{fig:timeseries}(top) shows a typical force record. The carriage
+was at rest for the first part of each record, accelerated to a constant
+speed, towed, and decelerated back to rest. The load cell zero was taken as
+the mean voltage over $\result[TareStart] \le t < \result[TareEnd]~\si{s}$,
+before the carriage started moving. The mean drag $\bar{F}$ is the mean force
+over the steady towing window
+$\result[SteadyStart] \le t < \result[SteadyEnd]~\si{s}$. The same window was
+used for every run.
+\todo[inline]{Justify the window, e.g., by the number of shedding cycles it
+contains and how much the mean changes when it is shortened.}
+The force fluctuations visible in the steady window are due to vortex
+shedding.
+
+The drag coefficient and Reynolds number are
+\begin{equation}
+  C_D = \frac{\bar{F}}{\tfrac{1}{2}\rho U^2 D L}, \qquad
+  \Rey = \frac{U D}{\nu},
+\end{equation}
+where $U$ is the carriage speed. The water density $\rho$ and kinematic
+viscosity $\nu$ were evaluated at each run's measured temperature. Density
+was computed from the formula of \citet{Tanaka2001} and dynamic viscosity
+from the Vogel equation $\mu = A\,10^{B/(T-C)}$ with
+$A = 2.414\times10^{-5}~\si{Pa.s}$, $B = 247.8~\si{K}$, and
+$C = 140~\si{K}$.
+\todo[inline]{Cite a source for these Vogel constants, or switch to a standard
+reference correlation such as IAPWS.}
+The diameter-based Froude number $\Fr = U/\sqrt{gD}$ ranged from
+\result[FrMin] to \result[FrMax].
+
+\paragraph{Run exclusion.}
+The zero was also measured after each run, over
+$\result[PostStart] \le t < \result[PostEnd]~\si{s}$. A run was excluded if
+the zero moved by more than \result[MaxZeroDriftThreshold]~\si{N} over the
+run. Only run \result[ExcludedRuns] met
+this criterion: its zero shifted by \result[ExcludedZeroDrift]~\si{N}, and
+its force rose steadily through the towing window
+(Fig.~\ref{fig:timeseries}, bottom). The run was flagged in the run log at
+the time of testing. For all retained runs the zero moved by at most
+\result[MaxZeroDriftUsed]~\si{N}.
+\todo[inline]{Run \result[ExcludedRuns] could be repeated if the 2~in cylinder is
+tested again.}
+
+\begin{figure}
+  \centering
+  \includegraphics{../figures/force-timeseries.pdf}
+  \caption{Load cell force records. Top: a typical run. Bottom: the run
+  excluded for zero drift. Shaded regions mark the windows used for the
+  zero, the steady mean, and the post-run zero check.}
+  \label{fig:timeseries}
+\end{figure}
+
+\section{Results}
+\label{sec:results}
+
+Figure~\ref{fig:cd} shows $C_D$ against $\Rey$ for all runs, and
+Table~\ref{tab:summary} summarizes each cylinder. Across the
+\result[NRunsUsed] retained runs, $C_D$ ranges from \result[CdMinAll] to
+\result[CdMaxAll], with a mean of \result[CdMeanAll] and standard deviation
+\result[CdStdAll]. The per-cylinder means, \result[CdMeanOneIn] for
+$D = \result[DOneIn]~\si{mm}$, \result[CdMeanOnePointFiveIn] for
+$D = \result[DOnePointFiveIn]~\si{mm}$, and \result[CdMeanTwoIn] for
+$D = \result[DTwoIn]~\si{mm}$, differ by less than the run-to-run standard
+deviation of any one cylinder. The three overlapping Reynolds number ranges
+show no consistent trend common to all cylinders.
+\todo[inline]{The smallest cylinder looks like it trends upward with $\Rey$, but the
+others don't. Decide whether to quantify this (e.g., a fitted slope with a
+confidence interval) or drop it.}
+Had run \result[ExcludedRuns] been retained, its $C_D$ of
+\result[CdExcluded] would have been the largest in the data set by a wide
+margin.
+
+The standard deviation of the fluctuating force in the steady window,
+normalized like $C_D$, was at most \result[CdFluctMax].
+
+\begin{figure}
+  \centering
+  \includegraphics{../figures/cd-vs-re.pdf}
+  \caption{Drag coefficient versus Reynolds number. Fluid properties are
+  evaluated at the measured water temperature. No blockage correction is
+  applied.}
+  \label{fig:cd}
+\end{figure}
+
+\begin{table}
+  \centering
+  \caption{Summary by cylinder. Blockage is given both as the width ratio
+  $D/W$ and as the frontal-area ratio $DL/(WH)$, where $W$ and $H$ are the
+  tank width and water depth. $C_D$ is the mean $\pm$ the standard deviation
+  over the runs used. No blockage correction is applied.}
+  \label{tab:summary}
+  \begin{tabular}{lccc}
+    \toprule
+    & \multicolumn{3}{c}{Cylinder} \\
+    \cmidrule(lr){2-4}
+    $D$ (\si{mm}) & \result[DOneIn] & \result[DOnePointFiveIn]
+      & \result[DTwoIn] \\
+    \midrule
+    Test date & \result[DateOneIn] & \result[DateOnePointFiveIn]
+      & \result[DateTwoIn] \\
+    Mean water temperature (\si{\celsius}) & \result[TempOneIn]
+      & \result[TempOnePointFiveIn] & \result[TempTwoIn] \\
+    Runs used & \result[NOneIn] & \result[NOnePointFiveIn]
+      & \result[NTwoIn] \\
+    $\Rey$ range & \result[ReMinOneIn]--\result[ReMaxOneIn]
+      & \result[ReMinOnePointFiveIn]--\result[ReMaxOnePointFiveIn]
+      & \result[ReMinTwoIn]--\result[ReMaxTwoIn] \\
+    $L/D$ & \result[AspectRatioOneIn] & \result[AspectRatioOnePointFiveIn]
+      & \result[AspectRatioTwoIn] \\
+    $D/W$ (\%) & \result[BlockageWidthOneIn]
+      & \result[BlockageWidthOnePointFiveIn] & \result[BlockageWidthTwoIn] \\
+    $DL/(WH)$ (\%) & \result[BlockageAreaOneIn]
+      & \result[BlockageAreaOnePointFiveIn] & \result[BlockageAreaTwoIn] \\
+    $C_D$ & \result[CdMeanOneIn]~$\pm$~\result[CdStdOneIn]
+      & \result[CdMeanOnePointFiveIn]~$\pm$~\result[CdStdOnePointFiveIn]
+      & \result[CdMeanTwoIn]~$\pm$~\result[CdStdTwoIn] \\
+    \bottomrule
+  \end{tabular}
+\end{table}
+
+\section{Discussion}
+\label{sec:discussion}
+
+\paragraph{Comparison with classical data.}
+The measured drag coefficients fall within the range usually quoted for
+circular cylinders in the subcritical regime~\citep{Wieselsberger1921,Zdravkovich1997}.
+\todo[inline]{Overlay or tabulate reference data (e.g., Wieselsberger, or the
+compilation in Zdravkovich) on Fig.~\ref{fig:cd} and compare quantitatively.
+Any reference data should enter through the pipeline as an imported dataset,
+not be typed in here.}
+
+\paragraph{Blockage.}
+The blockage ratios in Table~\ref{tab:summary} are small but not negligible,
+and they double from the smallest cylinder to the largest. Blockage raises
+the measured drag, so a correction~\citep[e.g.,][]{Maskell1963,WestApelt1982}
+would lower $C_D$, more for the larger cylinders. The near-equality of the
+uncorrected per-cylinder means therefore does not carry over automatically
+to the corrected values.
+\todo[inline]{Decide on a blockage correction method (the geometry is a
+surface-piercing cylinder spanning part of the depth, so the choice is not
+obvious), add it as a pipeline stage, and report corrected $C_D$.}
+
+\paragraph{Aspect ratio, free surface, and end effects.}
+The submerged aspect ratio ranges from \result[AspectRatioTwoIn] to
+\result[AspectRatioOneIn]. A finite span with a free lower end generally
+reduces the sectional drag relative to a two-dimensional
+cylinder~\citep{Zdravkovich1997}. At the upper end the cylinder pierces the
+free surface, and with $\Fr$ up to \result[FrMax] the surface deformation
+and wave making at the higher speeds may contribute to the measured force.
+\todo[inline]{Discuss these effects against the literature, and say whether
+any surface deformation was observed during the runs.}
+
+\paragraph{Uncertainty.}
+\todo[inline]{Uncertainty analysis: calibration (sensitivity fit, at most
+\result[CalResidMax]~\si{N} residual), zero, the statistical uncertainty of
+the mean over the window (account for the correlation from shedding), speed,
+diameter, submerged length, and temperature. Propagate to $C_D$ and $\Rey$,
+add error bars to Fig.~\ref{fig:cd}, and use the result to judge whether the
+diameter and Reynolds number differences in Sect.~\ref{sec:results} are
+significant.}
+
+\section{Conclusions}
+\label{sec:conclusions}
+
+Mean drag was measured on three smooth circular cylinders towed through a
+water tank over \result[ReMin]~$\le \Rey \le$~\result[ReMax]. With fluid
+properties evaluated at the measured water temperature and one run excluded
+for zero drift, the drag coefficient averaged \result[CdMeanAll]. The per-cylinder means agree within
+their run-to-run scatter, before any blockage correction or uncertainty
+analysis.
+\todo[inline]{Revise once the blockage correction, uncertainty analysis, and
+literature comparison are in.}
+
+\section*{Data availability}
+The raw data, calibration files, processing scripts, and the pipeline that
+produces every figure and value in this paper are available at
+\todo[inline]{repository URL / DOI}.
+
+\section*{Acknowledgements}
+\todo[inline]{Acknowledgements, funding. Credit J.~Rivera's original
+processing script if appropriate.}
+
+\bibliographystyle{plainnat}
+\bibliography{references}
+
+\end{document}
+\makeatletter%
+\newcommand\result[1][all]{%
+  \ifnum\pdfstrcmp{#1}{all}=0%
+    \def\result@out{%
+    \{%
+      "NRuns": 30, %
+      "NRunsUsed": 29, %
+      "NRunsExcluded": 1, %
+      "ExcludedRuns": "17", %
+      "ExcludedZeroDrift": "4.2", %
+      "MaxZeroDriftThreshold": 0.05, %
+      "MaxZeroDriftUsed": 0.003, %
+      "TareStart": 0.0, %
+      "TareEnd": 1.0, %
+      "SteadyStart": 3.0, %
+      "SteadyEnd": 8.0, %
+      "PostStart": 11.0, %
+      "PostEnd": 12.0, %
+      "SubmergedLength": 0.6, %
+      "TankWidth": 0.9, %
+      "TankDepth": 0.75, %
+      "SpeedMin": 0.2, %
+      "SpeedMax": 1.1, %
+      "NSpeeds": 10, %
+      "TempMin": 13.7, %
+      "TempMax": 17.6, %
+      "ReMin": 4700, %
+      "ReMax": 49900, %
+      "FrMin": 0.28, %
+      "FrMax": 2.2, %
+      "SensOld": 0.02001, %
+      "SensNew": 0.02129, %
+      "CalResidMax": 0.017, %
+      "CdMeanAll": 1.151, %
+      "CdStdAll": "0.030", %
+      "CdMinAll": 1.093, %
+      "CdMaxAll": 1.216, %
+      "CdExcluded": "1.36", %
+      "CdFluctMax": 0.07, %
+      "DOneIn": 25.4, %
+      "DateOneIn": "2025{-}10{-}14", %
+      "TempOneIn": 17.3, %
+      "NOneIn": 10, %
+      "CdMeanOneIn": 1.143, %
+      "CdStdOneIn": 0.033, %
+      "ReMinOneIn": 4700, %
+      "ReMaxOneIn": 26300, %
+      "AspectRatioOneIn": 23.6, %
+      "BlockageWidthOneIn": 2.8, %
+      "BlockageAreaOneIn": 2.3, %
+      "DOnePointFiveIn": 38.1, %
+      "DateOnePointFiveIn": "2026{-}03{-}12", %
+      "TempOnePointFiveIn": 14.0, %
+      "NOnePointFiveIn": 10, %
+      "CdMeanOnePointFiveIn": 1.152, %
+      "CdStdOnePointFiveIn": 0.026, %
+      "ReMinOnePointFiveIn": 6500, %
+      "ReMaxOnePointFiveIn": 36200, %
+      "AspectRatioOnePointFiveIn": 15.7, %
+      "BlockageWidthOnePointFiveIn": 4.2, %
+      "BlockageAreaOnePointFiveIn": 3.4, %
+      "DTwoIn": 50.8, %
+      "DateTwoIn": "2025{-}11{-}03", %
+      "TempTwoIn": 15.3, %
+      "NTwoIn": 9, %
+      "CdMeanTwoIn": 1.157, %
+      "CdStdTwoIn": 0.034, %
+      "ReMinTwoIn": 8900, %
+      "ReMaxTwoIn": 49900, %
+      "AspectRatioTwoIn": 11.8, %
+      "BlockageWidthTwoIn": 5.6, %
+      "BlockageAreaTwoIn": 4.5%
+    \}}%
+  \else%
+    \ifnum\pdfstrcmp{#1}{NRuns}=0%
+      \def\result@out{%
+    30}%
+    \else%
+      \ifnum\pdfstrcmp{#1}{NRunsUsed}=0%
+      \def\result@out{%
+    29}%
+    \else%
+      \ifnum\pdfstrcmp{#1}{NRunsExcluded}=0%
+      \def\result@out{%
+    1}%
+    \else%
+      \ifnum\pdfstrcmp{#1}{ExcludedRuns}=0%
+      \def\result@out{%
+    17}%
+    \else%
+      \ifnum\pdfstrcmp{#1}{ExcludedZeroDrift}=0%
+      \def\result@out{%
+    4.2}%
+    \else%
+      \ifnum\pdfstrcmp{#1}{MaxZeroDriftThreshold}=0%
+      \def\result@out{%
+    0.05}%
+    \else%
+      \ifnum\pdfstrcmp{#1}{MaxZeroDriftUsed}=0%
+      \def\result@out{%
+    0.003}%
+    \else%
+      \ifnum\pdfstrcmp{#1}{TareStart}=0%
+      \def\result@out{%
+    0.0}%
+    \else%
+      \ifnum\pdfstrcmp{#1}{TareEnd}=0%
+      \def\result@out{%
+    1.0}%
+    \else%
+      \ifnum\pdfstrcmp{#1}{SteadyStart}=0%
+      \def\result@out{%
+    3.0}%
+    \else%
+      \ifnum\pdfstrcmp{#1}{SteadyEnd}=0%
+      \def\result@out{%
+    8.0}%
+    \else%
+      \ifnum\pdfstrcmp{#1}{PostStart}=0%
+      \def\result@out{%
+    11.0}%
+    \else%
+      \ifnum\pdfstrcmp{#1}{PostEnd}=0%
+      \def\result@out{%
+    12.0}%
+    \else%
+      \ifnum\pdfstrcmp{#1}{SubmergedLength}=0%
+      \def\result@out{%
+    0.6}%
+    \else%
+      \ifnum\pdfstrcmp{#1}{TankWidth}=0%
+      \def\result@out{%
+    0.9}%
+    \else%
+      \ifnum\pdfstrcmp{#1}{TankDepth}=0%
+      \def\result@out{%
+    0.75}%
+    \else%
+      \ifnum\pdfstrcmp{#1}{SpeedMin}=0%
+      \def\result@out{%
+    0.2}%
+    \else%
+      \ifnum\pdfstrcmp{#1}{SpeedMax}=0%
+      \def\result@out{%
+    1.1}%
+    \else%
+      \ifnum\pdfstrcmp{#1}{NSpeeds}=0%
+      \def\result@out{%
+    10}%
+    \else%
+      \ifnum\pdfstrcmp{#1}{TempMin}=0%
+      \def\result@out{%
+    13.7}%
+    \else%
+      \ifnum\pdfstrcmp{#1}{TempMax}=0%
+      \def\result@out{%
+    17.6}%
+    \else%
+      \ifnum\pdfstrcmp{#1}{ReMin}=0%
+      \def\result@out{%
+    4700}%
+    \else%
+      \ifnum\pdfstrcmp{#1}{ReMax}=0%
+      \def\result@out{%
+    49900}%
+    \else%
+      \ifnum\pdfstrcmp{#1}{FrMin}=0%
+      \def\result@out{%
+    0.28}%
+    \else%
+      \ifnum\pdfstrcmp{#1}{FrMax}=0%
+      \def\result@out{%
+    2.2}%
+    \else%
+      \ifnum\pdfstrcmp{#1}{SensOld}=0%
+      \def\result@out{%
+    0.02001}%
+    \else%
+      \ifnum\pdfstrcmp{#1}{SensNew}=0%
+      \def\result@out{%
+    0.02129}%
+    \else%
+      \ifnum\pdfstrcmp{#1}{CalResidMax}=0%
+      \def\result@out{%
+    0.017}%
+    \else%
+      \ifnum\pdfstrcmp{#1}{CdMeanAll}=0%
+      \def\result@out{%
+    1.151}%
+    \else%
+      \ifnum\pdfstrcmp{#1}{CdStdAll}=0%
+      \def\result@out{%
+    0.030}%
+    \else%
+      \ifnum\pdfstrcmp{#1}{CdMinAll}=0%
+      \def\result@out{%
+    1.093}%
+    \else%
+      \ifnum\pdfstrcmp{#1}{CdMaxAll}=0%
+      \def\result@out{%
+    1.216}%
+    \else%
+      \ifnum\pdfstrcmp{#1}{CdExcluded}=0%
+      \def\result@out{%
+    1.36}%
+    \else%
+      \ifnum\pdfstrcmp{#1}{CdFluctMax}=0%
+      \def\result@out{%
+    0.07}%
+    \else%
+      \ifnum\pdfstrcmp{#1}{DOneIn}=0%
+      \def\result@out{%
+    25.4}%
+    \else%
+      \ifnum\pdfstrcmp{#1}{DateOneIn}=0%
+      \def\result@out{%
+    2025{-}10{-}14}%
+    \else%
+      \ifnum\pdfstrcmp{#1}{TempOneIn}=0%
+      \def\result@out{%
+    17.3}%
+    \else%
+      \ifnum\pdfstrcmp{#1}{NOneIn}=0%
+      \def\result@out{%
+    10}%
+    \else%
+      \ifnum\pdfstrcmp{#1}{CdMeanOneIn}=0%
+      \def\result@out{%
+    1.143}%
+    \else%
+      \ifnum\pdfstrcmp{#1}{CdStdOneIn}=0%
+      \def\result@out{%
+    0.033}%
+    \else%
+      \ifnum\pdfstrcmp{#1}{ReMinOneIn}=0%
+      \def\result@out{%
+    4700}%
+    \else%
+      \ifnum\pdfstrcmp{#1}{ReMaxOneIn}=0%
+      \def\result@out{%
+    26300}%
+    \else%
+      \ifnum\pdfstrcmp{#1}{AspectRatioOneIn}=0%
+      \def\result@out{%
+    23.6}%
+    \else%
+      \ifnum\pdfstrcmp{#1}{BlockageWidthOneIn}=0%
+      \def\result@out{%
+    2.8}%
+    \else%
+      \ifnum\pdfstrcmp{#1}{BlockageAreaOneIn}=0%
+      \def\result@out{%
+    2.3}%
+    \else%
+      \ifnum\pdfstrcmp{#1}{DOnePointFiveIn}=0%
+      \def\result@out{%
+    38.1}%
+    \else%
+      \ifnum\pdfstrcmp{#1}{DateOnePointFiveIn}=0%
+      \def\result@out{%
+    2026{-}03{-}12}%
+    \else%
+      \ifnum\pdfstrcmp{#1}{TempOnePointFiveIn}=0%
+      \def\result@out{%
+    14.0}%
+    \else%
+      \ifnum\pdfstrcmp{#1}{NOnePointFiveIn}=0%
+      \def\result@out{%
+    10}%
+    \else%
+      \ifnum\pdfstrcmp{#1}{CdMeanOnePointFiveIn}=0%
+      \def\result@out{%
+    1.152}%
+    \else%
+      \ifnum\pdfstrcmp{#1}{CdStdOnePointFiveIn}=0%
+      \def\result@out{%
+    0.026}%
+    \else%
+      \ifnum\pdfstrcmp{#1}{ReMinOnePointFiveIn}=0%
+      \def\result@out{%
+    6500}%
+    \else%
+      \ifnum\pdfstrcmp{#1}{ReMaxOnePointFiveIn}=0%
+      \def\result@out{%
+    36200}%
+    \else%
+      \ifnum\pdfstrcmp{#1}{AspectRatioOnePointFiveIn}=0%
+      \def\result@out{%
+    15.7}%
+    \else%
+      \ifnum\pdfstrcmp{#1}{BlockageWidthOnePointFiveIn}=0%
+      \def\result@out{%
+    4.2}%
+    \else%
+      \ifnum\pdfstrcmp{#1}{BlockageAreaOnePointFiveIn}=0%
+      \def\result@out{%
+    3.4}%
+    \else%
+      \ifnum\pdfstrcmp{#1}{DTwoIn}=0%
+      \def\result@out{%
+    50.8}%
+    \else%
+      \ifnum\pdfstrcmp{#1}{DateTwoIn}=0%
+      \def\result@out{%
+    2025{-}11{-}03}%
+    \else%
+      \ifnum\pdfstrcmp{#1}{TempTwoIn}=0%
+      \def\result@out{%
+    15.3}%
+    \else%
+      \ifnum\pdfstrcmp{#1}{NTwoIn}=0%
+      \def\result@out{%
+    9}%
+    \else%
+      \ifnum\pdfstrcmp{#1}{CdMeanTwoIn}=0%
+      \def\result@out{%
+    1.157}%
+    \else%
+      \ifnum\pdfstrcmp{#1}{CdStdTwoIn}=0%
+      \def\result@out{%
+    0.034}%
+    \else%
+      \ifnum\pdfstrcmp{#1}{ReMinTwoIn}=0%
+      \def\result@out{%
+    8900}%
+    \else%
+      \ifnum\pdfstrcmp{#1}{ReMaxTwoIn}=0%
+      \def\result@out{%
+    49900}%
+    \else%
+      \ifnum\pdfstrcmp{#1}{AspectRatioTwoIn}=0%
+      \def\result@out{%
+    11.8}%
+    \else%
+      \ifnum\pdfstrcmp{#1}{BlockageWidthTwoIn}=0%
+      \def\result@out{%
+    5.6}%
+    \else%
+      \ifnum\pdfstrcmp{#1}{BlockageAreaTwoIn}=0%
+      \def\result@out{%
+    4.5}%
+    \else%
+      \def\result@out{%
+    ??}%
+    \fi\fi\fi\fi\fi\fi\fi\fi\fi\fi\fi\fi\fi\fi\fi\fi\fi\fi\fi\fi\fi\fi\fi\fi\fi\fi\fi\fi\fi\fi\fi\fi\fi\fi\fi\fi\fi\fi\fi\fi\fi\fi\fi\fi\fi\fi\fi\fi\fi\fi\fi\fi\fi\fi\fi\fi\fi\fi\fi\fi\fi\fi\fi\fi\fi\fi\fi
+  \fi
+  \result@out
+}%
+\makeatother%

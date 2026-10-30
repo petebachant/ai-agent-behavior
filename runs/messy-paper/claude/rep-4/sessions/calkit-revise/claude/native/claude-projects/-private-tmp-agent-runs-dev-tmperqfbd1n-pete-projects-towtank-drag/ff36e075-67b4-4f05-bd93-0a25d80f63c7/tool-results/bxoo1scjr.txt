@@ -1,0 +1,582 @@
+# towtank-drag
+
+Drag on smooth circular cylinders towed through the tank. 1in, 2in and
+1.5in cylinders, 0.6 m submerged.
+
+This is a [Calkit](https://calkit.org) project. Running
+
+```sh
+calkit run
+```
+
+runs the whole pipeline (defined in `calkit.yaml`), from the raw data to the
+paper, re-running only stages whose inputs have changed:
+
+1. `process` (`scripts/process.py`): raw load cell records -> mean force per
+   run (`results/forces.csv`), with the calibration fitted from the file in
+   effect for each batch. Reads both DAQ file formats.
+2. `analyze` (`scripts/analyze.py`): Cd, Re (water properties at the
+   logged temperature), Fr, St, and run screening (load cell zero drift).
+   Writes `results/cd.csv`, `results/summary.json`, and the numbers and
+   tables used in the paper (`paper/generated/`).
+3. `plot-figures` (`scripts/plot_figures.py`): figures in `figures/paper/`.
+4. `build-paper`: compiles `paper/paper.tex` -> `paper/paper.pdf` in
+   Docker (TeX Live), so no local LaTeX install is needed.
+
+The Python environment (`py`, from `requirements.txt`) is created
+automatically with uv. Raw data in `data/raw` is tracked with DVC.
+
+Calibration files are in data/calibration. Run log is data/run_log.csv.
+
+## Legacy files
+
+`process.py`, `process_b3.py`, `plot_timeseries.py`, `analysis.ipynb`,
+`processed/` and the existing `figures/*.png` are the original workflow,
+replaced by the pipeline above. old_matlab/ is Jamie's original
+processing script, kept for reference.
+# towtank notes
+
+2025-09-30  calibrated load cell (data/calibration/loadcell_2025-09.csv),
+            sens ~0.020 V/N
+
+2025-10-14  1in cylinder, 10 speeds 0.2-1.1 m/s. water ~17C
+
+2025-10-20  first Cd plot (figures/cd_vs_re_oct.png). Cd ~0.98, bit
+            low? check L (0.6 m submerged)
+
+2025-11-03  2in cylinder, same speeds. run 17 zero looked off after the run
+            (drift?) - recheck or toss
+
+2025-11-10  from notebook: Cd 2in = 1.18, 1in = 1.14
+
+2026-03-10  load cell remounted + recalibrated
+            (data/calibration/loadcell_2026-03.csv), new sens 0.0213.
+            DAQ software updated -> new file format (semicolons)
+
+2026-03-12  1.5in cylinder, 10 speeds. water cold (~14C)
+
+2026-03-20  wrote process_b3.py for the new format, added to notebook
+
+TODO: use actual water temp for nu instead of 20C
+TODO: blockage correction? tank is 0.9 m wide x 0.75 m deep
+TODO: write up for Exp Fluids?
+run_id,date,cylinder,diameter_mm,speed_m_s,water_temp_c,notes
+1,2025-10-14,1in,25.4,0.2,16.9,
+2,2025-10-14,1in,25.4,0.3,17.1,
+3,2025-10-14,1in,25.4,0.4,17.1,
+4,2025-10-14,1in,25.4,0.5,17.1,small wave from previous run
+5,2025-10-14,1in,25.4,0.6,17.1,
+6,2025-10-14,1in,25.4,0.7,17.4,
+7,2025-10-14,1in,25.4,0.8,17.4,
+8,2025-10-14,1in,25.4,0.9,17.5,
+9,2025-10-14,1in,25.4,1.0,17.6,
+10,2025-10-14,1in,25.4,1.1,17.6,
+11,2025-11-03,2in,50.8,0.2,15.0,
+12,2025-11-03,2in,50.8,0.3,15.1,
+13,2025-11-03,2in,50.8,0.4,15.1,
+14,2025-11-03,2in,50.8,0.5,15.2,
+15,2025-11-03,2in,50.8,0.6,15.1,
+16,2025-11-03,2in,50.8,0.7,15.3,
+17,2025-11-03,2in,50.8,0.8,15.3,zero off after run?
+18,2025-11-03,2in,50.8,0.9,15.5,
+19,2025-11-03,2in,50.8,1.0,15.4,
+20,2025-11-03,2in,50.8,1.1,15.6,
+21,2026-03-12,1.5in,38.1,0.2,13.7,
+22,2026-03-12,1.5in,38.1,0.3,13.8,
+23,2026-03-12,1.5in,38.1,0.4,13.8,
+24,2026-03-12,1.5in,38.1,0.5,14.0,
+25,2026-03-12,1.5in,38.1,0.6,14.1,
+26,2026-03-12,1.5in,38.1,0.7,14.0,
+27,2026-03-12,1.5in,38.1,0.8,14.2,
+28,2026-03-12,1.5in,38.1,0.9,14.2,
+29,2026-03-12,1.5in,38.1,1.0,14.3,
+30,2026-03-12,1.5in,38.1,1.1,14.3,
+"""Compute drag coefficient, Reynolds, Froude, and Strouhal numbers per run.
+
+Water properties are evaluated at the logged water temperature of each run.
+Runs whose post-run zero differs from the pre-run tare by more than
+DRIFT_LIMIT_N are flagged and excluded from the summary statistics.
+
+Outputs results/cd.csv, results/summary.json, and LaTeX snippets in
+paper/generated/ for the manuscript.
+"""
+
+import json
+import os
+
+import numpy as np
+import pandas as pd
+
+OUT_DIR = "results"
+TEX_DIR = "paper/generated"
+
+G = 9.81
+L = 0.60  # m, submerged length of cylinder
+TANK_WIDTH = 0.90  # m
+TANK_DEPTH = 0.75  # m
+DRIFT_LIMIT_N = 0.05
+MASKELL_EPS = 2.5  # Maskell (1963) blockage factor, for an indicative correction
+
+
+def water_viscosity(T):
+    """Dynamic viscosity (Pa s), Kestin et al. (1978) correlation."""
+    dT = 20.0 - T
+    log_ratio = dT / (T + 96) * (1.2378 - 1.303e-3 * dT + 3.06e-6 * dT**2
+                                 + 2.55e-8 * dT**3)
+    return 1.002e-3 * 10**log_ratio
+
+
+def water_density(T):
+    """Density (kg/m^3), Tanaka et al. (2001) formula for air-free water."""
+    a1, a2, a3, a4, a5 = -3.983035, 301.797, 522528.9, 69.34881, 999.974950
+    return a5 * (1 - (T + a1) ** 2 * (T + a2) / (a3 * (T + a4)))
+
+
+forces = pd.read_csv(os.path.join(OUT_DIR, "forces.csv"))
+log = pd.read_csv("data/run_log.csv").rename(columns={"run_id": "run"})
+df = forces.merge(log, on="run", validate="one_to_one")
+
+D = df.diameter_mm / 1000
+U = df.speed_m_s
+df["rho"] = water_density(df.water_temp_c)
+df["nu"] = water_viscosity(df.water_temp_c) / df.rho
+df["Re"] = U * D / df.nu
+df["Fr_D"] = U / np.sqrt(G * D)
+q_area = 0.5 * df.rho * U**2 * D * L
+df["Cd"] = df.F_mean_N / q_area
+df["Cd_sem"] = df.F_sem_N / q_area
+df["Cd_rms"] = df.F_std_N / q_area
+df["St"] = df.f_peak_Hz / 2 * D / U  # drag fluctuates at twice the shedding freq.
+df["blockage"] = D * L / (TANK_WIDTH * TANK_DEPTH)
+df["Cd_maskell"] = df.Cd / (1 + MASKELL_EPS * df.Cd * df.blockage)
+df["excluded"] = df.zero_drift_N.abs() > DRIFT_LIMIT_N
+df.to_csv(os.path.join(OUT_DIR, "cd.csv"), index=False)
+
+good = df[~df.excluded]
+cyl_order = ["1in", "1.5in", "2in"]
+by_cyl = {}
+for cyl in cyl_order:
+    g = good[good.cylinder == cyl]
+    by_cyl[cyl] = {
+        "D_mm": float(g.diameter_mm.iloc[0]),
+        "aspect_ratio": float(L / (g.diameter_mm.iloc[0] / 1000)),
+        "blockage": float(g.blockage.iloc[0]),
+        "n_runs": int(len(g)),
+        "Cd_mean": float(g.Cd.mean()),
+        "Cd_std": float(g.Cd.std()),
+        "Cd_maskell_mean": float(g.Cd_maskell.mean()),
+        "Re_min": float(g.Re.min()),
+        "Re_max": float(g.Re.max()),
+        "T_min": float(g.water_temp_c.min()),
+        "T_max": float(g.water_temp_c.max()),
+    }
+
+# Re that would have been reported with the old fixed 20 C viscosity
+re_20c_bias = float((U * D / 1.004e-6 / df.Re - 1).loc[~df.excluded].mean())
+excluded = df[df.excluded]
+with open(os.path.join(OUT_DIR, "calibration.json")) as f:
+    cals = json.load(f)
+rel_sens_err = {
+    f: s["sensitivity_std_err"] / s["sensitivity_V_per_N"] for f, s in cals.items()
+}
+cd_vs_fr = np.polyfit(good.Fr_D, good.Cd, 1)
+summary = {
+    "n_runs": int(len(df)),
+    "n_good": int(len(good)),
+    "excluded_runs": excluded.run.tolist(),
+    "excluded_drift_N": excluded.zero_drift_N.round(3).tolist(),
+    "max_drift_good_N": float(good.zero_drift_N.abs().max()),
+    "Cd_mean_all": float(good.Cd.mean()),
+    "Cd_std_all": float(good.Cd.std()),
+    "Cd_maskell_mean_all": float(good.Cd_maskell.mean()),
+    "Cd_excluded_run": excluded.Cd.round(3).tolist(),
+    "Cd_sem_max_rel": float((good.Cd_sem / good.Cd).max()),
+    "Cd_rms_mean_rel": float((good.Cd_rms / good.Cd).mean()),
+    "Re_min": float(good.Re.min()),
+    "Re_max": float(good.Re.max()),
+    "Fr_min": float(good.Fr_D.min()),
+    "Fr_max": float(good.Fr_D.max()),
+    "Cd_vs_Fr_slope": float(cd_vs_fr[0]),
+    "Cd_vs_Fr_corr": float(np.corrcoef(good.Fr_D, good.Cd)[0, 1]),
+    "Cd_vs_Re_corr": float(np.corrcoef(np.log(good.Re), good.Cd)[0, 1]),
+    "St_mean": float(good.St.mean()),
+    "St_std": float(good.St.std()),
+    "re_20c_bias": re_20c_bias,
+    "sensitivity_rel_err_max": float(max(rel_sens_err.values())),
+    "by_cylinder": by_cyl,
+}
+with open(os.path.join(OUT_DIR, "summary.json"), "w") as f:
+    json.dump(summary, f, indent=2)
+
+# LaTeX macros so numbers in the text always match the pipeline output
+os.makedirs(TEX_DIR, exist_ok=True)
+names = {"1in": "One", "1.5in": "OneHalf", "2in": "Two"}
+macros = {
+    "NRuns": f"{summary['n_runs']}",
+    "NGood": f"{summary['n_good']}",
+    "ExcludedRun": f"{summary['excluded_runs'][0]}" if len(excluded) else "none",
+    "ExcludedDrift": f"{abs(summary['excluded_drift_N'][0]):.1f}" if len(excluded) else "--",
+    "ExcludedCd": f"{summary['Cd_excluded_run'][0]:.2f}" if len(excluded) else "--",
+    "DriftLimit": f"{DRIFT_LIMIT_N:.2f}",
+    "MaxDriftGood": f"{summary['max_drift_good_N'] * 1000:.1f}",
+    "CdMean": f"{summary['Cd_mean_all']:.2f}",
+    "CdStd": f"{summary['Cd_std_all']:.2f}",
+    "CdMaskellMean": f"{summary['Cd_maskell_mean_all']:.2f}",
+    "CdSemMaxPct": f"{summary['Cd_sem_max_rel'] * 100:.1f}",
+    "CdRmsPct": f"{summary['Cd_rms_mean_rel'] * 100:.0f}",
+    "ReMin": f"{summary['Re_min'] / 1e3:.1f}",
+    "ReMax": f"{summary['Re_max'] / 1e3:.1f}",
+    "FrMin": f"{summary['Fr_min']:.2f}",
+    "FrMax": f"{summary['Fr_max']:.2f}",
+    "CdFrCorr": f"{summary['Cd_vs_Fr_corr']:.2f}",
+    "CdReCorr": f"{summary['Cd_vs_Re_corr']:.2f}",
+    "CdFrSlope": f"{summary['Cd_vs_Fr_slope']:.3f}",
+    "StMean": f"{summary['St_mean']:.3f}",
+    "StStd": f"{summary['St_std']:.3f}",
+    "ReBiasPct": f"{summary['re_20c_bias'] * 100:.0f}",
+    "SensErrPct": f"{summary['sensitivity_rel_err_max'] * 100:.2f}",
+    "SensA": f"{cals['loadcell_2025-09.csv']['sensitivity_V_per_N']:.5f}",
+    "SensB": f"{cals['loadcell_2026-03.csv']['sensitivity_V_per_N']:.5f}",
+    "CalResidMax": f"{max(c['max_resid_N'] for c in cals.values()) * 1000:.0f}",
+    "CalMaxLoad": f"{max(c['max_load_N'] for c in cals.values()):.1f}",
+    "FMaxGood": f"{good.F_mean_N.max():.1f}",
+    "SubLength": f"{L:.2f}",
+    "EndGap": f"{TANK_DEPTH - L:.2f}",
+    "TankWidth": f"{TANK_WIDTH:.2f}",
+    "TankDepth": f"{TANK_DEPTH:.2f}",
+    "MaskellEps": f"{MASKELL_EPS:.1f}",
+}
+for cyl, s in by_cyl.items():
+    n = names[cyl]
+    macros[f"Cd{n}"] = f"{s['Cd_mean']:.3f}"
+    macros[f"CdStd{n}"] = f"{s['Cd_std']:.3f}"
+    macros[f"CdMaskell{n}"] = f"{s['Cd_maskell_mean']:.3f}"
+    macros[f"Blockage{n}"] = f"{s['blockage'] * 100:.1f}"
+    macros[f"AR{n}"] = f"{s['aspect_ratio']:.1f}"
+with open(os.path.join(TEX_DIR, "numbers.tex"), "w") as f:
+    f.write("% Generated by scripts/analyze.py -- do not edit\n")
+    for k, v in macros.items():
+        f.write(f"\\newcommand{{\\{k}}}{{{v}}}\n")
+
+# Summary table of the three cylinders
+dates = df.groupby("cylinder").date.first()
+with open(os.path.join(TEX_DIR, "table_cylinders.tex"), "w") as f:
+    f.write("% Generated by scripts/analyze.py -- do not edit\n")
+    for cyl in cyl_order:
+        s = by_cyl[cyl]
+        f.write(
+            f"{s['D_mm']:.1f} & {dates[cyl]} & {s['aspect_ratio']:.1f} & "
+            f"{s['blockage'] * 100:.1f} & {s['T_min']:.1f}--{s['T_max']:.1f} & "
+            f"{s['Re_min'] / 1e3:.1f}--{s['Re_max'] / 1e3:.1f} & {s['n_runs']} & "
+            f"${s['Cd_mean']:.3f} \\pm {s['Cd_std']:.3f}$ & "
+            f"{s['Cd_maskell_mean']:.3f} \\\\\n"
+        )
+    f.write("\\bottomrule\n")  # must follow the rows inside the input file
+
+# Per-run data table for the appendix
+with open(os.path.join(TEX_DIR, "table_runs.tex"), "w") as f:
+    f.write("% Generated by scripts/analyze.py -- do not edit\n")
+    for _, r in df.iterrows():
+        mark = "$^{\\dagger}$" if r.excluded else ""
+        f.write(
+            f"{r.run}{mark} & {r.diameter_mm:.1f} & {r.speed_m_s:.1f} & "
+            f"{r.water_temp_c:.1f} & {r.F_mean_N:.3f} & {r.Re / 1e3:.1f} & "
+            f"{r.Fr_D:.2f} & {r.Cd:.3f} & {r.St:.3f} \\\\\n"
+        )
+    f.write("\\bottomrule\n")  # must follow the rows inside the input file
+
+print(json.dumps({k: v for k, v in summary.items() if k != "by_cylinder"}, indent=1))
+print(pd.DataFrame(by_cyl).T.round(4))
+"""Reduce raw tow tank load cell time series to mean drag force per run.
+
+Handles both DAQ file formats (comma-separated with a commented header for
+the 2025 batches, semicolon-separated for the 2026 batch) and fits the load
+cell sensitivity from the calibration file in effect on the run date.
+
+Outputs results/forces.csv and results/calibration.json.
+"""
+
+import glob
+import json
+import os
+
+import numpy as np
+import pandas as pd
+
+RAW_DIR = "data/raw"
+CAL_DIR = "data/calibration"
+OUT_DIR = "results"
+
+G = 9.81
+FS = 200.0  # Hz, sample rate for both DAQ versions
+TARE_WINDOW = (0.0, 1.0)  # s, carriage at rest before the run
+STEADY_WINDOW = (3.0, 8.0)  # s, constant carriage speed
+POST_WINDOW = (11.0, 12.0)  # s, carriage at rest after the run
+N_BLOCKS = 5  # blocks for standard error of the steady-state mean
+
+# Calibration in effect for each batch (load cell remounted 2026-03-10)
+CALIBRATIONS = {
+    "2025-10-14": "loadcell_2025-09.csv",
+    "2025-11-03": "loadcell_2025-09.csv",
+    "2026-03-12": "loadcell_2026-03.csv",
+}
+
+
+def fit_calibration(fname):
+    cal = pd.read_csv(os.path.join(CAL_DIR, fname))
+    force = cal.mass_g / 1000 * G
+    (slope, intercept), cov = np.polyfit(force, cal.voltage_V, 1, cov=True)
+    resid = cal.voltage_V - (slope * force + intercept)
+    return {
+        "file": fname,
+        "sensitivity_V_per_N": float(slope),
+        "sensitivity_std_err": float(np.sqrt(cov[0, 0])),
+        "offset_V": float(intercept),
+        "max_resid_N": float(np.abs(resid).max() / slope),
+        "max_load_N": float(force.max()),
+        "n_points": len(cal),
+    }
+
+
+def read_run(fname):
+    """Return (time_s, voltage_V) for either DAQ file format."""
+    with open(fname) as f:
+        first = f.readline()
+    if ";" in first:
+        d = pd.read_csv(fname, sep=";")
+        return d.t.values, d.V.values
+    d = pd.read_csv(fname, comment="#")
+    return d.time_s.values, d.loadcell_V.values
+
+
+def in_window(t, window):
+    return (t >= window[0]) & (t < window[1])
+
+
+def dominant_frequency(x):
+    n = np.arange(len(x))
+    x = x - np.polyval(np.polyfit(n, x, 1), n)
+    power = np.abs(np.fft.rfft(x * np.hanning(len(x)))) ** 2
+    freqs = np.fft.rfftfreq(len(x), 1 / FS)
+    return freqs[np.argmax(power[1:]) + 1]
+
+
+cals = {name: fit_calibration(name) for name in sorted(set(CALIBRATIONS.values()))}
+for c in cals.values():
+    print(f"{c['file']}: sensitivity = {c['sensitivity_V_per_N']:.5f} V/N")
+
+rows = []
+for batch, cal_file in CALIBRATIONS.items():
+    sens = cals[cal_file]["sensitivity_V_per_N"]
+    for fname in sorted(glob.glob(os.path.join(RAW_DIR, batch, "run_*.csv"))):
+        t, v = read_run(fname)
+        tare = v[in_window(t, TARE_WINDOW)].mean()
+        post = v[in_window(t, POST_WINDOW)].mean()
+        force = (v - tare) / sens
+        steady = force[in_window(t, STEADY_WINDOW)]
+        block_means = np.array([b.mean() for b in np.array_split(steady, N_BLOCKS)])
+        rows.append({
+            "run": int(os.path.basename(fname)[4:7]),
+            "batch": batch,
+            "calibration": cal_file,
+            "sensitivity_V_per_N": sens,
+            "F_mean_N": steady.mean(),
+            "F_std_N": steady.std(),
+            "F_sem_N": block_means.std(ddof=1) / np.sqrt(N_BLOCKS),
+            "zero_drift_N": (post - tare) / sens,
+            "f_peak_Hz": dominant_frequency(steady),
+        })
+
+os.makedirs(OUT_DIR, exist_ok=True)
+out = pd.DataFrame(rows).sort_values("run")
+out.to_csv(os.path.join(OUT_DIR, "forces.csv"), index=False)
+with open(os.path.join(OUT_DIR, "calibration.json"), "w") as f:
+    json.dump(cals, f, indent=2)
+print(f"Processed {len(out)} runs")
+% Generated by scripts/analyze.py -- do not edit
+\newcommand{\NRuns}{30}
+\newcommand{\NGood}{29}
+\newcommand{\ExcludedRun}{17}
+\newcommand{\ExcludedDrift}{4.2}
+\newcommand{\ExcludedCd}{1.35}
+\newcommand{\DriftLimit}{0.05}
+\newcommand{\MaxDriftGood}{3.5}
+\newcommand{\CdMean}{1.15}
+\newcommand{\CdStd}{0.03}
+\newcommand{\CdMaskellMean}{1.05}
+\newcommand{\CdSemMaxPct}{0.3}
+\newcommand{\CdRmsPct}{5}
+\newcommand{\ReMin}{4.7}
+\newcommand{\ReMax}{49.8}
+\newcommand{\FrMin}{0.28}
+\newcommand{\FrMax}{2.20}
+\newcommand{\CdFrCorr}{0.43}
+\newcommand{\CdReCorr}{0.50}
+\newcommand{\CdFrSlope}{0.024}
+\newcommand{\StMean}{0.201}
+\newcommand{\StStd}{0.003}
+\newcommand{\ReBiasPct}{12}
+\newcommand{\SensErrPct}{0.07}
+\newcommand{\SensA}{0.02001}
+\newcommand{\SensB}{0.02129}
+\newcommand{\CalResidMax}{17}
+\newcommand{\CalMaxLoad}{19.6}
+\newcommand{\FMaxGood}{20.8}
+\newcommand{\SubLength}{0.60}
+\newcommand{\EndGap}{0.15}
+\newcommand{\TankWidth}{0.90}
+\newcommand{\TankDepth}{0.75}
+\newcommand{\MaskellEps}{2.5}
+\newcommand{\CdOne}{1.143}
+\newcommand{\CdStdOne}{0.033}
+\newcommand{\CdMaskellOne}{1.074}
+\newcommand{\BlockageOne}{2.3}
+\newcommand{\AROne}{23.6}
+\newcommand{\CdOneHalf}{1.152}
+\newcommand{\CdStdOneHalf}{0.026}
+\newcommand{\CdMaskellOneHalf}{1.050}
+\newcommand{\BlockageOneHalf}{3.4}
+\newcommand{\AROneHalf}{15.7}
+\newcommand{\CdTwo}{1.157}
+\newcommand{\CdStdTwo}{0.034}
+\newcommand{\CdMaskellTwo}{1.024}
+\newcommand{\BlockageTwo}{4.5}
+\newcommand{\ARTwo}{11.8}
+% Generated by scripts/analyze.py -- do not edit
+25.4 & 2025-10-14 & 23.6 & 2.3 & 16.9--17.6 & 4.7--26.2 & 10 & $1.143 \pm 0.033$ & 1.074 \\
+38.1 & 2026-03-12 & 15.7 & 3.4 & 13.7--14.3 & 6.5--36.1 & 10 & $1.152 \pm 0.026$ & 1.050 \\
+50.8 & 2025-11-03 & 11.8 & 4.5 & 15.0--15.6 & 8.9--49.8 & 9 & $1.157 \pm 0.034$ & 1.024 \\
+\bottomrule
+% Generated by scripts/analyze.py -- do not edit
+1 & 25.4 & 0.2 & 16.9 & 0.333 & 4.7 & 0.40 & 1.093 & 0.203 \\
+2 & 25.4 & 0.3 & 17.1 & 0.785 & 7.1 & 0.60 & 1.147 & 0.203 \\
+3 & 25.4 & 0.4 & 17.1 & 1.335 & 9.4 & 0.80 & 1.096 & 0.203 \\
+4 & 25.4 & 0.5 & 17.1 & 2.131 & 11.8 & 1.00 & 1.120 & 0.198 \\
+5 & 25.4 & 0.6 & 17.1 & 3.101 & 14.1 & 1.20 & 1.132 & 0.199 \\
+6 & 25.4 & 0.7 & 17.4 & 4.405 & 16.6 & 1.40 & 1.181 & 0.200 \\
+7 & 25.4 & 0.8 & 17.4 & 5.582 & 19.0 & 1.60 & 1.146 & 0.200 \\
+8 & 25.4 & 0.9 & 17.5 & 7.191 & 21.4 & 1.80 & 1.167 & 0.200 \\
+9 & 25.4 & 1.0 & 17.6 & 8.930 & 23.8 & 2.00 & 1.173 & 0.201 \\
+10 & 25.4 & 1.1 & 17.6 & 10.847 & 26.2 & 2.20 & 1.178 & 0.201 \\
+11 & 50.8 & 0.2 & 15.0 & 0.723 & 8.9 & 0.28 & 1.187 & 0.203 \\
+12 & 50.8 & 0.3 & 15.1 & 1.576 & 13.4 & 0.42 & 1.150 & 0.203 \\
+13 & 50.8 & 0.4 & 15.1 & 2.696 & 17.9 & 0.57 & 1.107 & 0.203 \\
+14 & 50.8 & 0.5 & 15.2 & 4.476 & 22.4 & 0.71 & 1.176 & 0.203 \\
+15 & 50.8 & 0.6 & 15.1 & 6.300 & 26.8 & 0.85 & 1.149 & 0.203 \\
+16 & 50.8 & 0.7 & 15.3 & 8.740 & 31.5 & 0.99 & 1.171 & 0.203 \\
+17$^{\dagger}$ & 50.8 & 0.8 & 15.3 & 13.206 & 35.9 & 1.13 & 1.355 & 0.203 \\
+18 & 50.8 & 0.9 & 15.5 & 13.946 & 40.7 & 1.27 & 1.131 & 0.198 \\
+19 & 50.8 & 1.0 & 15.4 & 18.508 & 45.1 & 1.42 & 1.216 & 0.198 \\
+20 & 50.8 & 1.1 & 15.6 & 20.796 & 49.8 & 1.56 & 1.129 & 0.199 \\
+21 & 38.1 & 0.2 & 13.7 & 0.504 & 6.5 & 0.33 & 1.104 & 0.210 \\
+22 & 38.1 & 0.3 & 13.8 & 1.180 & 9.7 & 0.49 & 1.148 & 0.203 \\
+23 & 38.1 & 0.4 & 13.8 & 2.109 & 13.0 & 0.65 & 1.154 & 0.200 \\
+24 & 38.1 & 0.5 & 14.0 & 3.321 & 16.3 & 0.82 & 1.163 & 0.198 \\
+25 & 38.1 & 0.6 & 14.1 & 4.727 & 19.6 & 0.98 & 1.150 & 0.197 \\
+26 & 38.1 & 0.7 & 14.0 & 6.316 & 22.8 & 1.14 & 1.129 & 0.201 \\
+27 & 38.1 & 0.8 & 14.2 & 8.305 & 26.2 & 1.31 & 1.136 & 0.200 \\
+28 & 38.1 & 0.9 & 14.2 & 11.030 & 29.5 & 1.47 & 1.192 & 0.199 \\
+29 & 38.1 & 1.0 & 14.3 & 13.315 & 32.8 & 1.64 & 1.166 & 0.202 \\
+30 & 38.1 & 1.1 & 14.3 & 16.349 & 36.1 & 1.80 & 1.183 & 0.201 \\
+\bottomrule
+{
+  "n_runs": 30,
+  "n_good": 29,
+  "excluded_runs": [
+    17
+  ],
+  "excluded_drift_N": [
+    4.196
+  ],
+  "max_drift_good_N": 0.003496534440240838,
+  "Cd_mean_all": 1.150793990083615,
+  "Cd_std_all": 0.030288447859786714,
+  "Cd_maskell_mean_all": 1.0500115512481376,
+  "Cd_excluded_run": [
+    1.355
+  ],
+  "Cd_sem_max_rel": 0.003282973729265914,
+  "Cd_rms_mean_rel": 0.04768799399822076,
+  "Re_min": 4683.7645624789775,
+  "Re_max": 49817.27580145939,
+  "Fr_min": 0.28331112969361466,
+  "Fr_max": 2.20364343091174,
+  "Cd_vs_Fr_slope": 0.02446349964759465,
+  "Cd_vs_Fr_corr": 0.42942674544443965,
+  "Cd_vs_Re_corr": 0.4974737288648811,
+  "St_mean": 0.20112456709956708,
+  "St_std": 0.0026428598336059204,
+  "re_20c_bias": 0.12032189456778951,
+  "sensitivity_rel_err_max": 0.000675263725265394,
+  "by_cylinder": {
+    "1in": {
+      "D_mm": 25.4,
+      "aspect_ratio": 23.62204724409449,
+      "blockage": 0.022577777777777773,
+      "n_runs": 10,
+      "Cd_mean": 1.1432774533278904,
+      "Cd_std": 0.032656440689744694,
+      "Cd_maskell_mean": 1.0739273050030655,
+      "Re_min": 4683.7645624789775,
+      "Re_max": 26223.841058742873,
+      "T_min": 16.9,
+      "T_max": 17.6
+    },
+    "1.5in": {
+      "D_mm": 38.1,
+      "aspect_ratio": 15.74803149606299,
+      "blockage": 0.03386666666666667,
+      "n_runs": 10,
+      "Cd_mean": 1.1524024534959136,
+      "Cd_std": 0.025975438006757442,
+      "Cd_maskell_mean": 1.0499190712273396,
+      "Re_min": 6458.864624857233,
+      "Re_max": 36100.81176030967,
+      "T_min": 13.7,
+      "T_max": 14.3
+    },
+    "2in": {
+      "D_mm": 50.8,
+      "aspect_ratio": 11.811023622047244,
+      "blockage": 0.045155555555555546,
+      "n_runs": 9,
+      "Cd_mean": 1.1573585160207545,
+      "Cd_std": 0.03361125514828719,
+      "Cd_maskell_mean": 1.023541247099104,
+      "Re_min": 8915.982049789796,
+      "Re_max": 49817.27580145939,
+      "T_min": 15.0,
+      "T_max": 15.6
+    }
+  }
+}run,batch,calibration,sensitivity_V_per_N,F_mean_N,F_std_N,F_sem_N,zero_drift_N,f_peak_Hz,date,cylinder,diameter_mm,speed_m_s,water_temp_c,notes,rho,nu,Re,Fr_D,Cd,Cd_sem,Cd_rms,St,blockage,Cd_maskell,excluded
+1,2025-10-14,loadcell_2025-09.csv,0.020005522952956448,0.33269962578091067,0.021933236197762284,0.0007101025236386887,-0.0005673433294723362,3.2,2025-10-14,1in,25.4,0.2,16.9,,998.795105874082,1.0845976419684314e-06,4683.7645624789775,0.40066244198395273,1.0928509750382758,0.0023325431566512084,0.07204624444108595,0.2032,0.022577777777777773,1.029354844556996,False
+2,2025-10-14,loadcell_2025-09.csv,0.020005522952956448,0.7854905886215663,0.042421595110510454,0.0005752556689953278,-0.001294642487520681,4.800000000000001,2025-10-14,1in,25.4,0.3,17.1,,998.7603397575446,1.0790676697543833e-06,7061.651658727259,0.600993662975929,1.1467855623825192,0.0008398507957176392,0.06193387102363886,0.20320000000000002,0.022577777777777773,1.077067344344138,False
+3,2025-10-14,loadcell_2025-09.csv,0.020005522952956448,1.3345099782085217,0.0645377171554675,0.0012669165425686498,7.497929464352993e-05,6.4,2025-10-14,1in,25.4,0.4,17.1,,998.7603397575446,1.0790676697543833e-06,9415.53554496968,0.8013248839679055,1.0959369837068407,0.0010404273605618807,0.05300018151204605,0.2032,0.022577777777777773,1.0320922191460018,False
+4,2025-10-14,loadcell_2025-09.csv,0.020005522952956448,2.130531158831881,0.10051058513870767,0.0023931191586400906,-0.00020994202499855405,7.800000000000001,2025-10-14,1in,25.4,0.5,17.1,small wave from previous run,998.7603397575446,1.0790676697543833e-06,11769.4194312121,1.0016561049598818,1.1197772030332764,0.0012577897614304767,0.05282694948407525,0.19812000000000002,0.022577777777777773,1.053208920341385,False
+5,2025-10-14,loadcell_2025-09.csv,0.020005522952956448,3.10108114373645,0.14394117365640613,0.0034272831542923273,-0.0022893677964672425,9.4,2025-10-14,1in,25.4,0.6,17.1,,998.7603397575446,1.0790676697543833e-06,14123.303317454518,1.201987325951858,1.131864319868692,0.0012509248667245424,0.0525371220778206,0.19896666666666668,0.022577777777777773,1.0638947916655344,False
+6,2025-10-14,loadcell_2025-09.csv,0.020005522952956448,4.405248500988376,0.20285928932613767,0.0026841307544824677,0.0011146921803750992,11.0,2025-10-14,1in,25.4,0.7,17.4,,998.7073487636239,1.070858726902088e-06,16603.497317929294,1.4023185469438344,1.181356880758181,0.0007198041915118008,0.054400839638757914,0.19957142857142857,0.022577777777777773,1.1075071595015185,False
+7,2025-10-14,loadcell_2025-09.csv,0.020005522952956448,5.582251974247762,0.25354083913078085,0.004615718219229875,-0.0010597073643011424,12.600000000000001,2025-10-14,1in,25.4,0.8,17.4,,998.7073487636239,1.070858726902088e-06,18975.425506204912,1.602649767935811,1.1461362407491489,0.0009476895619457188,0.052056472115251794,0.200025,0.022577777777777773,1.0764945534487327,False
+8,2025-10-14,loadcell_2025-09.csv,0.020005522952956448,7.1911496809304705,0.3240494471269613,0.003221847911583556,0.0010946977017999766,14.200000000000001,2025-10-14,1in,25.4,0.9,17.5,,998.6894616359125,1.0681450949575319e-06,21401.58683302186,1.802980988927787,1.1666158461414136,0.0005226784303319715,0.052570345038731287,0.20037777777777777,0.022577777777777773,1.0945414072755602,False
+9,2025-10-14,loadcell_2025-09.csv,0.020005522952956448,8.929610109172385,0.4114443463681882,0.005149536167394371,-0.000384893712498274,15.8,2025-10-14,1in,25.4,1.0,17.6,,998.6714631990811,1.0654426991611501e-06,23839.855507948065,2.0033122099197636,1.1734237803987433,0.0006766911570570238,0.05406715124584494,0.20066,0.022577777777777773,1.100531967724873,False
+10,2025-10-14,loadcell_2025-09.csv,0.020005522952956448,10.847212067902017,0.4850427017240829,0.007692524517354729,0.0012746480089511078,17.400000000000002,2025-10-14,1in,25.4,1.1,17.6,,998.6714631990811,1.0654426991611501e-06,26223.841058742873,2.20364343091174,1.178026741201814,0.0008354219989493714,0.05267650984224366,0.2008909090909091,0.022577777777777773,1.1045798420259147,False
+11,2025-11-03,loadcell_2025-09.csv,0.020005522952956448,0.723136307609599,0.03797985109053204,0.0023740375005606683,-0.0006873102009008742,1.6,2025-11-03,2in,50.8,0.2,15.0,,999.1025717180356,1.1395267445877747e-06,8915.982049789796,0.28331112969361466,1.1873127518120403,0.0038979165726213483,0.062358867943961796,0.2032,0.045155555555555546,1.0469812323884167,False
+12,2025-11-03,loadcell_2025-09.csv,0.020005522952956448,1.5761392528526867,0.07656583211377434,0.002889377640487453,-0.0016695389607411055,2.4000000000000004,2025-11-03,2in,50.8,0.3,15.1,,999.087434644518,1.1365235601414246e-06,13409.312868185145,0.4249666945404219,1.1501741737382285,0.002108498683888801,0.05587326280254198,0.20320000000000002,0.045155555555555546,1.0179956943667263,False
+13,2025-11-03,loadcell_2025-09.csv,0.020005522952956448,2.6959410222280393,0.12519788591351758,0.004207126195251058,-0.0003174123473290863,3.2,2025-11-03,2in,50.8,0.4,15.1,,999.087434644518,1.1365235601414246e-06,17879.083824246864,0.5666222593872293,1.10662872858011,0.0017269393781393126,0.05139117516557986,0.2032,0.045155555555555546,0.9837346122524785,False
+14,2025-11-03,loadcell_2025-09.csv,0.020005522952956448,4.476488828139607,0.20689130606400497,0.0015801444340739373,0.0014371031473472725,4.0,2025-11-03,2in,50.8,0.5,15.2,,999.0721798563878,1.133533246443216e-06,22407.812104055833,0.7082778242340366,1.17602258840214,0.0004151212297744425,0.0543526095152588,0.2032,0.045155555555555546,1.0381922998214397,False
+15,2025-11-03,loadcell_2025-09.csv,0.020005522952956448,6.2998932992838705,0.28717403164607774,0.004697477868975895,-0.003496534440240838,4.800000000000001,2025-11-03,2in,50.8,0.6,15.1,,999.087434644518,1.1365235601414246e-06,26818.62573637029,0.8499333890808438,1.149323347703604,0.0008569861001850111,0.05239069992860503,0.20320000000000002,0.045155555555555546,1.017329129604819,False
+16,2025-11-03,loadcell_2025-09.csv,0.020005522952956448,8.739519602218753,0.39152802614503107,0.017047610172539862,0.0004123861205449642,5.6000000000000005,2025-11-03,2in,50.8,0.7,15.3,,999.0568076351854,1.1305557297401436e-06,31453.557807515957,0.9915889539276511,1.171429968463742,0.0022850319417706453,0.052479733920764396,0.20320000000000002,0.045155555555555546,1.0346114706273262,False
+17,2025-11-03,loadcell_2025-09.csv,0.020005522952956448,13.206145653940862,0.7734085186488217,0.2797947364856965,4.196468655051742,6.4,2025-11-03,2in,50.8,0.8,15.3,zero off after run?,999.0568076351854,1.1305557297401436e-06,35946.92320858967,1.1332445187744586,1.3552548135175928,0.028713386430504133,0.0793695333355302,0.2032,0.045155555555555546,1.1754230655424827,True
+18,2025-11-03,loadcell_2025-09.csv,0.020005522952956448,13.946370242661827,0.6269093057998014,0.005811859053372177,0.0007622894955499537,7.0,2025-11-03,2in,50.8,0.9,15.5,,999.0257120130887,1.124638794908789e-06,40653.05252403996,1.2749000836212658,1.1308748319053707,0.00047126851042106945,0.0508344424736103,0.19755555555555554,0.045155555555555546,1.002848038891328,False
+19,2025-11-03,loadcell_2025-09.csv,0.020005522952956448,18.507880592308254,0.812997519220691,0.0051319408041029715,-0.00044237783839793645,7.800000000000001,2025-11-03,2in,50.8,1.0,15.4,,999.0413182611221,1.1275909368003508e-06,45051.798788087064,1.4165556484680732,1.215593227416709,0.0003370646603135989,0.05339748510599195,0.19812000000000002,0.045155555555555546,1.0689099544628085,False
+20,2025-11-03,loadcell_2025-09.csv,0.020005522952956448,20.79615069190267,0.9389958310293273,0.025572873761392185,0.0008147750017982048,8.6,2025-11-03,2in,50.8,1.1,15.6,,999.0099891686623,1.1216992318629153e-06,49817.27580145939,1.5582112133148807,1.1288670261648457,0.0013881594907249922,0.050971040124651236,0.19858181818181816,0.045155555555555546,1.0012687914765939,False
+21,2026-03-12,loadcell_2026-03.csv,0.021291541888228904,0.5041757922630637,0.029381591169858192,0.0004874920817301987,-2.58318539293826e-05,2.2,2026-03-12,1.5in,38.1,0.2,13.7,,999.2885110752162,1.179773914237819e-06,6458.864624857233,0.32713951398605073,1.1035318529291773,0.0010670148160531578,0.06430995347901104,0.20955000000000001,0.03386666666666667,1.009236501239457,False
+22,2026-03-12,loadcell_2026-03.csv,0.021291541888228904,1.1798788519815198,0.05751589221689749,0.0016525916277669306,0.0001362043207228291,3.2,2026-03-12,1.5in,38.1,0.3,13.8,,999.2749305310474,1.176596453252618e-06,9714.46069585079,0.4907092709790761,1.147793299170713,0.001607651152854305,0.055951808587390385,0.20320000000000002,0.03386666666666667,1.0461305111530728,False
+23,2026-03-12,loadcell_2026-03.csv,0.021291541888228904,2.108688991886566,0.09793310513166181,0.0016449424693153684,0.0021487405769029626,4.2,2026-03-12,1.5in,38.1,0.4,13.8,,999.2749305310474,1.176596453252618e-06,12952.614261134388,0.6542790279721015,1.1538818062612415,0.0009001181278948641,0.05358932904609806,0.200025,0.03386666666666667,1.051185860642268,False
+24,2026-03-12,loadcell_2026-03.csv,0.021291541888228904,3.3208229056952336,0.1552526344814259,0.004524226836827925,0.0020313230590440286,5.2,2026-03-12,1.5in,38.1,0.5,14.0,,999.2474052445853,1.1702830873860344e-06,16278.112710789,0.8178487849651268,1.1630180304198348,0.001584473949488912,0.05437255111147724,0.19812000000000002,0.03386666666666667,1.058762858799939,False
+25,2026-03-12,loadcell_2026-03.csv,0.021291541888228904,4.727101049250134,0.2188291680785978,0.004302924121682735,0.0020125362561801336,6.2,2026-03-12,1.5in,38.1,0.6,14.1,,999.2334610999634,1.1671470212007386e-06,19586.221431197308,0.9814185419581521,1.1496858500482343,0.0010465210971774377,0.05322179396983695,0.19685000000000002,0.03386666666666667,1.0477024241681212,False
+26,2026-03-12,loadcell_2026-03.csv,0.021291541888228904,6.316482888181613,0.2906587706086285,0.008574943284627825,-0.0004461865678858491,7.4,2026-03-12,1.5in,38.1,0.7,14.0,,999.2474052445853,1.1702830873860344e-06,22789.3577951046,1.1449882989511775,1.1286518150265534,0.0015322016180955862,0.05193595151102433,0.2013857142857143,0.03386666666666667,1.0302061526328137,False
+27,2026-03-12,loadcell_2026-03.csv,0.021291541888228904,8.305272155877173,0.3811941128132845,0.005181155127245927,0.0002395317364403595,8.4,2026-03-12,1.5in,38.1,0.8,14.2,,999.2193963504775,1.164024592942537e-06,26185.01377445096,1.308558055944203,1.1362314559188376,0.0007088258305185215,0.05215057780894391,0.200025,0.03386666666666667,1.0365175077773099,False
+28,2026-03-12,loadcell_2026-03.csv,0.021291541888228904,11.030429887740553,0.5003066006162916,0.00624080553334123,0.0018481517311718903,9.4,2026-03-12,1.5in,38.1,0.9,14.2,,999.2193963504775,1.164024592942537e-06,29458.14049625733,1.4721278129372284,1.1923406033637216,0.000674603429859973,0.05408092704606952,0.19896666666666668,0.03386666666666667,1.0830091957537167,False
+29,2026-03-12,loadcell_2026-03.csv,0.021291541888228904,13.314896191559097,0.6129970090938717,0.012594982797377467,-5.16637078587652e-05,10.600000000000001,2026-03-12,1.5in,38.1,1.0,14.3,,999.205211291399,1.1609157233986947e-06,32818.91978209969,1.6356975699302536,1.165834395299493,0.0011027997471506163,0.0536731933269147,0.20193000000000003,0.03386666666666667,1.0610964197859696,False
+30,2026-03-12,loadcell_2026-03.csv,0.021291541888228904,16.349007123455237,0.7480345671556777,0.015523898619068149,-0.0019162538915333048,11.600000000000001,2026-03-12,1.5in,38.1,1.1,14.3,,999.205211291399,1.1609157233986947e-06,36100.81176030967,1.7992673269232793,1.1830554265213298,0.0011233484922584165,0.05412966960112424,0.20089090909090912,0.03386666666666667,1.0753432803207303,False
