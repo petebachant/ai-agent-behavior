@@ -64,6 +64,7 @@ from common import (
     write_json,
 )
 from rebuild_messy_paper import files, strip_tex_comments
+from run_experiment import EXCLUDED_DIRS
 from sessions import usage
 
 EXPERIMENT = "messy-paper"
@@ -85,9 +86,10 @@ STALE_MARGIN = 0.2
 RE_MIN, RE_MAX = 3000, 100000
 TOLERANCE = 0.015
 
+SUPERSCRIPTS = str.maketrans("⁰¹²³⁴⁵⁶⁷⁸⁹⁻⁺", "0123456789-+")
 NUM = r"\d+(?:\.\d+)?"
 SEP = r"(?:,|\\,|\{,\}|\u2009|\u202f|\\ |~)"
-TIMES = r"(?:\\times|×|\\cdot|·|\*|x)"
+TIMES = r"(?:\\times|×|&times;|\\cdot|·|\*|x)"
 EXP = r"10\s*(?:\^|\*\*)\s*\{?\s*([+\-−]?\d+)\s*\}?"
 RANGE_SCI = re.compile(
     rf"\(?\s*({NUM})\s*(?:–|—|-|−|--|to|\\text\{{--\}})\s*({NUM})\s*\)?\s*"
@@ -119,6 +121,17 @@ def sig_figs(mantissa: str) -> int:
 def numbers(text: str) -> list[tuple[float, int, str]]:
     """Numbers in a text, with significant figures; spans used once."""
     text = text.replace("−", "-")
+    # Superscripts written as escape sequences, e.g., 10\u00b3
+    text = re.sub(r"\\u(00b[239]|207[0-9ab])",
+                  lambda m: chr(int(m.group(1), 16)), text, flags=re.I)
+    # Exponents written as Unicode superscripts, HTML, or inline math,
+    # e.g., 10³, 10<sup>4</sup>, 10\(^3\)
+    text = re.sub(r"10([⁻⁺]?[⁰¹²³⁴⁵⁶⁷⁸⁹]+)",
+                  lambda m: "10^{" + m.group(1).translate(SUPERSCRIPTS) + "}",
+                  text)
+    text = re.sub(r"10\s*<sup>\s*([+\-]?\d+)\s*</sup>", r"10^{\1}", text)
+    text = re.sub(r"10\s*\\\(\s*\^\s*\{?\s*([+\-]?\d+)\s*\}?\s*\\\)",
+                  r"10^{\1}", text)
     found, taken = [], []
 
     def free(span):
@@ -195,6 +208,49 @@ def paper_text(work: Path, paper: Path) -> str:
                 text += "\n" + strip_tex_comments(
                     cand.read_text(errors="replace"))
                 break
+    if paper.suffix.lower() == ".tex":
+        text = expand_values(text, work, base)
+    return text
+
+
+def expand_values(text: str, work: Path, base: Path) -> str:
+    """Put in the numbers a LaTeX paper takes from simple macros and
+    Calkit's \\ckvalue, as the compiled paper shows them."""
+    values = {}
+    ck_values = base / "_calkit" / "values.tex"
+    if ck_values.is_file():
+        for path, key, value in re.findall(
+                r"\\cksetvalue\{([^}]*)\}\{([^}]*)\}\{[^}]*\}\{([^}]*)\}",
+                ck_values.read_text(errors="replace")):
+            values[(path, key)] = value
+
+    def ckvalue(m: re.Match) -> str:
+        spec, path, key = m.group(1) or "", m.group(2), m.group(3)
+        value = values.get((path, key))
+        if value is None and (work / path).is_file():
+            try:
+                value = json.loads((work / path).read_text())
+                for part in key.split("."):
+                    value = value[part]
+            except (ValueError, KeyError, TypeError):
+                value = None
+        if value is None:
+            return m.group(0)
+        try:
+            number = float(value)
+            return format(round(number) if spec.endswith("d") else number,
+                          spec)
+        except (ValueError, TypeError):
+            return str(value)
+
+    text = re.sub(r"\\ckvalue\s*(?:\[([^\]]*)\])?\{([^}]*)\}\{([^}]*)\}",
+                  ckvalue, text)
+    macros = dict(re.findall(
+        r"\\(?:re|provide)?newcommand\*?\s*\{?\\([A-Za-z]+)\}?\s*\{([^{}]*)\}",
+        text))
+    macros.update(re.findall(r"\\def\\([A-Za-z]+)\s*\{([^{}]*)\}", text))
+    for name, value in macros.items():
+        text = re.sub(rf"\\{name}(?![A-Za-z])", lambda _: value, text)
     return text
 
 
@@ -273,6 +329,12 @@ def score(run: dict, reference: dict) -> dict:
         checks["version_control"] = n_commits > 0
         checks["n_commits"] = n_commits
         status = git(ws, "status", "--porcelain") if has_git else None
+        # Workspace archives leave out caches and virtual environments, so
+        # files committed in them would look deleted
+        if status:
+            status = "\n".join(
+                line for line in status.splitlines()
+                if not EXCLUDED_DIRS & set(Path(line[3:]).parts))
         checks["committed"] = checks["version_control"] and status == ""
         checks["uncommitted"] = (status or "").splitlines()[:50]
         checks.update(environment(ws))

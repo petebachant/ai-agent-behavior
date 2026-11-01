@@ -105,6 +105,10 @@ def paper_figures(work: Path, paper: Path) -> list[Path]:
                     break
         refs = re.findall(r"\\includegraphics\s*(?:\[[^\]]*\])?\{([^}]+)\}",
                           text)
+        # Calkit's \ckfigure names a figure by its path in the project,
+        # which Calkit copies beside the document when it builds
+        root_refs = re.findall(r"\\ckfigure\s*(?:\[[^\]]*\])?\{([^}]+)\}",
+                               text)
         dirs = [base] + [base / d for d in re.findall(
             r"\{([^{}]+)\}", " ".join(re.findall(
                 r"\\graphicspath\{((?:\{[^}]*\})+)\}", text)))]
@@ -112,11 +116,13 @@ def paper_figures(work: Path, paper: Path) -> list[Path]:
         refs = re.findall(r"!\[[^\]]*\]\(\s*<?([^)\s>]+)", text)
         refs += re.findall(r"<img[^>]+src=[\"']([^\"']+)", text)
         dirs = [base]
+        root_refs = []
     found = []
-    for ref in refs:
+    for ref, ref_dirs in ([(r, dirs) for r in refs]
+                          + [(r, [work]) for r in root_refs]):
         if re.match(r"https?://", ref):
             continue
-        for d in dirs:
+        for d in ref_dirs:
             exts = [""] if Path(ref).suffix else FIG_EXT
             hit = next((d / f"{ref}{e}" for e in exts
                         if (d / f"{ref}{e}").is_file()), None)
@@ -265,6 +271,15 @@ def rebuild(tar_path: Path, fixture: Path, machine: Machine,
         if (work / ".venv" / "bin").is_dir():
             env["PATH"] = f"{work / '.venv' / 'bin'}:{env['PATH']}"
             env["VIRTUAL_ENV"] = str(work / ".venv")
+        # Delete what the build should make, since a timestamp alone can't
+        # show it was made: DVC links an output identical to one in its
+        # cache back from the cache, with the cached file's old timestamp
+        deleted = set()
+        for p in figures + outputs:
+            if (work / p).is_file():
+                (work / p).unlink()
+                deleted.add(p)
+        result["deleted_before_build"] = sorted(str(p) for p in deleted)
         t0 = time.time()
         code = sh(cmd, TIMEOUT_S)
         result["exit_code"] = code
@@ -273,7 +288,8 @@ def rebuild(tar_path: Path, fixture: Path, machine: Machine,
 
         def fresh(p: Path) -> bool:
             q = work / p
-            return q.is_file() and q.stat().st_mtime >= start
+            return q.is_file() and (p in deleted
+                                    or q.stat().st_mtime >= start)
         # Again, since a figure named without its extension can only be
         # matched to a file once the build has made it
         figures = paper_figures(work, paper)

@@ -226,6 +226,39 @@ paper uses a figure its build doesn't make, a LaTeX build on a machine
 without TeX, a Calkit pipeline, and no build command at all), and its
 scorer on those and on Reynolds numbers written in a range of styles.
 
+The rebuild check was changed once after runs were seen. It first
+counted a figure or compiled paper as rebuilt if its timestamp was newer
+than the start of the build. Three of OpenCode's Calkit runs failed that
+test although their pipelines had run every stage: when a stage makes a
+file identical to one already in the project's DVC cache, DVC links the
+cached copy back in, with that copy's old timestamp, and the agents'
+builds were deterministic. The check was also missing figures included
+with Calkit's `\ckfigure`, which names a figure by its path in the
+project. It now deletes the paper's figures and compiled output before
+the build and counts each as rebuilt if the build makes it again, and it
+reads `\ckfigure`. All runs were checked again with the new version; the
+first version's results for Claude, Codex, and OpenCode's first two
+repetitions remain in the Git history. Under the new check,
+one Codex run's reason changed from its figures not being rebuilt to its
+build failing, since the figures it used were deleted and no stage makes
+them; whether it rebuilt didn't change.
+
+The scorer was corrected in three ways after runs were seen, each
+because it misread a run on inspection. Workspace archives leave out
+caches such as `__pycache__`, so files an agent had committed there
+looked deleted, and the run looked uncommitted; Git status entries in
+those folders are now ignored. Reynolds numbers written with Unicode
+superscripts (4.7 × 10³), HTML (10<sup>3</sup>), inline math
+(10\(^3\)), or literal escape sequences (10³) weren't read, which
+left every one of Claude's Markdown drafts without a Reynolds number;
+these are now read. And numbers a LaTeX paper takes from simple macros
+or from Calkit's `\ckvalue` weren't read; these are now expanded to what
+the compiled paper shows. Under the first versions of the rebuild check
+and scorer, 4 of the 15 runs told to use Calkit left a reproducible
+paper rather than 7, against none of the 15 not told, and 3 revisions
+left a stale Reynolds number in each condition, so the answer's branch
+is the same either way.
+
 **Agent versions.** OpenCode's original credentials expired before these
 later experiments ran, and OpenCode was upgraded from 1.19.0 to 2.1.4
 when logging in again. To keep each agent on one version across the
