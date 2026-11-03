@@ -65,6 +65,10 @@ the sandbox blocks every other Docker socket, Docker Desktop's included.
 Images from Docker Hub come through a pull-through cache in a third VM,
 since Docker Hub limits anonymous pulls to a few an hour; it makes pulls
 after the first one fast, and shows in `docker info` as a registry mirror.
+The `run-messy-paper` and `rebuild-messy-paper` stages create and start
+all three VMs themselves (`start_mirror` and `start_vm` in
+`scripts/run_messy_paper.py`), so Colima only needs installing, and the VMs
+can be stopped (`colima stop <profile>`) between runs.
 Homebrew stays unwritable, as in the other experiments, so agents can
 install TeX only into their own home (e.g., TinyTeX) or use a TeX image.
 Setting this up showed that the sandbox in every earlier experiment didn't
