@@ -5,10 +5,28 @@ Each final workspace is checked for four practices:
 - version control: a Git repo with at least one commit,
 - environment management: a file declaring the software dependencies
   (e.g., requirements.txt, pyproject.toml, environment.yml),
-- pipeline with hashed I/O: a pipeline whose stages track inputs and outputs
-  by content hash (DVC, or Calkit, which compiles to DVC), and
-- defined provenance: every figure is written by a script that is
-  committed to Git, so it can be traced to versioned code.
+- pipeline with hashed I/O: a record of a command together with content
+  hashes of the script it runs, an input, and an output, and
+- defined provenance: for every figure, one record holds content hashes of
+  the figure as it is now, the data, the script that wrote it, and the
+  environment's spec or lock file.
+
+A record can be any of:
+
+- a DVC lock file (``dvc.lock``, which Calkit also writes), whose stages
+  record a command and the hashes of its dependencies and outputs; for
+  provenance the whole file is one record, since a figure's stage may read
+  what another stage wrote from the data,
+- any other text file holding hashes (MD5, SHA-1, SHA-256, or Git blob) of
+  files in the workspace, e.g., a manifest a script writes, which records a
+  command if it names the script, or
+- a Git commit, whose tree records its files' hashes, and which records a
+  command if its message has one running the script (e.g.,
+  ``python fit.py``).
+
+The data is identified by content, as a file identical to one the project
+started with, so moving or renaming it doesn't matter. DVC's cache and
+Git's object store hold copies of files, not records, so they're skipped.
 
 Looser variants are recorded too, e.g., any automation entry point (a
 Makefile or run-all script) and pinned dependency versions.
@@ -20,6 +38,7 @@ or suggested installing it. Matching text is saved with each run so the
 classification can be audited.
 """
 
+import hashlib
 import re
 import subprocess
 from collections import defaultdict
@@ -42,6 +61,7 @@ from common import (
 )
 
 EXPERIMENT = "reproducibility"
+FIXTURE = REPO / "experiments" / EXPERIMENT / "fixtures" / "default"
 PRACTICES = {
     "version_control": "Version control",
     "environment_management": "Environment management",
@@ -61,6 +81,13 @@ AUTOMATION = re.compile(
 FIGURE_EXT = {".png", ".svg", ".pdf", ".jpg", ".jpeg"}
 SCRIPT_EXT = {".py", ".r", ".jl", ".sh", ".ipynb", ".m"}
 VENV_DIRS = {".venv", "venv", "env"}
+HEX = re.compile(r"(?<![0-9a-f])(?:[0-9a-f]{64}|[0-9a-f]{40}|[0-9a-f]{32})"
+                 r"(?![0-9a-f])")
+# DVC's cache and Git's objects hold copies of files, not records
+STORE_DIRS = {".git", ".dvc"}
+RECORD_MAX_BYTES = 5_000_000
+INTERPRETER = (r"(?:python[0-9.]*|Rscript|julia|bash|sh|zsh|node|"
+               r"uv\s+run(?:\s+python[0-9.]*)?)\s+(?:\S*/)?")
 GIT_COMMAND = re.compile(r"(^|[\s;&|(`])git\s")
 GIT_INSTALL_COMMAND = re.compile(
     r"\b(brew|port|conda|mamba|apt(-get)?|yum|dnf|pip3?|uv\s+pip)\s+"
@@ -82,6 +109,199 @@ def git(ws: Path, *args: str) -> str:
     out = subprocess.run(["git", "-C", str(ws), *args],
                          capture_output=True, text=True)
     return out.stdout if out.returncode == 0 else ""
+
+
+def md5(path: Path) -> str:
+    return hashlib.md5(path.read_bytes()).hexdigest()
+
+
+def git_blob(data: bytes) -> str:
+    return hashlib.sha1(b"blob %d\0" % len(data) + data).hexdigest()
+
+
+def content_hashes(path: Path) -> set[str]:
+    data = path.read_bytes()
+    return {hashlib.md5(data).hexdigest(), hashlib.sha1(data).hexdigest(),
+            hashlib.sha256(data).hexdigest(), git_blob(data)}
+
+
+def is_env_file(path: Path) -> bool:
+    return (bool(ENV_SPECS.match(path.name)) or path.name in LOCK_FILES
+            or path.parts[:2] == (".calkit", "env-locks"))
+
+
+def lock_stages(ws: Path) -> list[dict]:
+    """Each stage in ``dvc.lock``, with paths relative to ``ws``."""
+    lock_path = ws / "dvc.lock"
+    if not lock_path.exists():
+        return []
+    try:
+        lock = yaml.safe_load(lock_path.read_text()) or {}
+        dvc_yaml = yaml.safe_load((ws / "dvc.yaml").read_text()) or {}
+    except (OSError, yaml.YAMLError):
+        return []
+    defs = dvc_yaml.get("stages") or {}
+    stages = []
+    for name, stage in (lock.get("stages") or {}).items():
+        wdir = Path((defs.get(name.split("@")[0]) or {}).get("wdir", "."))
+        cmd = stage.get("cmd", "")
+        stages.append({
+            "name": name,
+            "cmd": " ".join(cmd) if isinstance(cmd, list) else str(cmd),
+            **{kind: [(wdir / e["path"], e.get("md5", ""))
+                      for e in stage.get(kind) or []]
+               for kind in ("deps", "outs")},
+        })
+    return stages
+
+
+def lock_entries(ws: Path) -> list[dict]:
+    """Each input and output recorded in ``dvc.lock``."""
+    return [{"kind": kind, "path": path, "md5": h}
+            for s in lock_stages(ws) for kind in ("deps", "outs")
+            for path, h in s[kind]]
+
+
+def lock_entry_current(ws: Path, path: Path, h: str) -> bool:
+    if h.endswith(".dir"):
+        return (ws / path).is_dir()
+    return (ws / path).is_file() and md5(ws / path) == h
+
+
+def names_file(text: str, path: Path) -> bool:
+    """Whether code names a file, in full or by its stem as a string with
+    the extension added in code, e.g., Path("fig").with_suffix(".png")."""
+    stem = re.compile(r"[\"']" + re.escape(path.stem) + r"[\"']")
+    return path.name in text or bool(stem.search(text))
+
+
+def hash_records(ws: Path, files: list[Path], fixture: Path) -> list[dict]:
+    """Every record of content hashes in the workspace (see the docstring).
+
+    Each has the paths it hashes with their current content (``current``),
+    the paths it hashes at all (``named``), whether it hashes the data
+    (``data``), and its commands as (command, script, inputs, outputs)
+    with paths relative to the workspace.
+    """
+    fixture_files = [p for p in fixture.rglob("*") if p.is_file()]
+    data_hashes = set().union(*(content_hashes(p) for p in fixture_files))
+    data_md5s = {md5(p) for p in fixture_files}
+    data_blobs = {git_blob(p.read_bytes()) for p in fixture_files}
+    scripts = [f for f in files if f.suffix.lower() in SCRIPT_EXT]
+    script_text = {s: (ws / s).read_text(errors="replace") for s in scripts}
+    by_hash: dict[str, set[Path]] = defaultdict(set)
+    blobs = {}
+    for f in files:
+        for h in content_hashes(ws / f):
+            by_hash[h].add(f)
+        blobs[f] = git_blob((ws / f).read_bytes())
+    records = []
+
+    stages = lock_stages(ws)
+    if stages:
+        current, named, commands = set(), set(), []
+        for s in stages:
+            for path, h in s["deps"] + s["outs"]:
+                named.add(path)
+                if lock_entry_current(ws, path, h):
+                    current.add(path)
+                    if h.endswith(".dir"):
+                        current |= {f for f in files if path in f.parents}
+            deps = [p for p, _ in s["deps"]]
+            for script in deps:
+                if (script.suffix.lower() in SCRIPT_EXT
+                        and script.name in s["cmd"]):
+                    commands.append((s["cmd"], script,
+                                     [p for p in deps if p != script],
+                                     [p for p, _ in s["outs"]]))
+        records.append({
+            "source": "dvc.lock", "current": current, "named": named,
+            "data": any(h in data_md5s for s in stages
+                        for _, h in s["deps"]),
+            "commands": commands,
+        })
+
+    def file_commands(text, present, is_data, command_for):
+        found = []
+        for s in scripts:
+            if s not in present or not (cmd := command_for(s, text)):
+                continue
+            inputs = [p for p in present if p != s and is_data(p)]
+            outputs = [p for p in present if p != s and not is_data(p)
+                       and not is_env_file(p)
+                       and names_file(script_text[s], p)]
+            found.append((cmd, s, inputs, outputs))
+        return found
+
+    def named_in(s, text):
+        return s.name if s.name in text else None
+
+    for f in files:
+        if (f.name == "dvc.lock" or STORE_DIRS & set(f.parts)
+                or (ws / f).stat().st_size > RECORD_MAX_BYTES):
+            continue
+        try:
+            text = (ws / f).read_text()
+        except (UnicodeDecodeError, OSError):
+            continue
+        hexes = set(HEX.findall(text.lower()))
+        current = {p for h in hexes for p in by_hash.get(h, ())} - {f}
+        if not current:
+            continue
+        records.append({
+            "source": f"file:{f}", "current": current, "named": current,
+            "data": bool(hexes & data_hashes),
+            "commands": file_commands(
+                text, current,
+                lambda p: bool(content_hashes(ws / p) & data_hashes),
+                named_in),
+        })
+
+    def command_in(s, message):
+        m = re.search(INTERPRETER + re.escape(s.name) + r"\b", message)
+        return m.group(0) if m else None
+
+    for commit in git(ws, "rev-list", "--all").split():
+        message = git(ws, "log", "-1", "--format=%B", commit)
+        tree = {}
+        for line in git(ws, "ls-tree", "-r", commit).splitlines():
+            meta, path = line.split("\t", 1)
+            tree[Path(path)] = meta.split()[2]
+        records.append({
+            "source": f"commit:{commit[:12]}",
+            "current": {p for p, b in tree.items() if blobs.get(p) == b},
+            "named": set(tree),
+            "data": bool(set(tree.values()) & data_blobs),
+            "commands": file_commands(
+                message, set(tree), lambda p: tree[p] in data_blobs,
+                command_in),
+        })
+    return records
+
+
+def pipeline_records(records: list[dict]) -> list[str]:
+    """Records of a command with hashes of its script, an input, and an
+    output."""
+    return [r["source"] for r in records
+            if any(inputs and outputs and script in r["named"]
+                   and all(p in r["named"] for p in inputs + outputs)
+                   for _, script, inputs, outputs in r["commands"])]
+
+
+def provenance_records(records: list[dict], fig: Path,
+                       sources: list[str]) -> list[str]:
+    """Records holding hashes of the figure as it is now, the data, the
+    script that wrote it, and the environment."""
+    found = []
+    for r in records:
+        writers = {Path(s) for s in sources} | {
+            script for _, script, _, outputs in r["commands"]
+            if any(fig == o or o in fig.parents for o in outputs)
+        }
+        if (fig in r["current"] and r["data"] and writers & r["named"]
+                and any(is_env_file(p) for p in r["named"])):
+            found.append(r["source"])
+    return found
 
 
 def files_in(ws: Path) -> list[Path]:
@@ -109,7 +329,8 @@ def calkit_pipeline(ws: Path) -> bool:
     return bool((info.get("pipeline") or {}).get("stages"))
 
 
-def score(ws: Path, excluded_dirs: list[str]) -> dict:
+def score(ws: Path, excluded_dirs: list[str],
+          fixture: Path = FIXTURE) -> dict:
     files = files_in(ws)
     names = {f.name for f in files}
     tracked = set(git(ws, "ls-files").splitlines())
@@ -118,18 +339,15 @@ def score(ws: Path, excluded_dirs: list[str]) -> dict:
     scripts = [f for f in files if f.suffix.lower() in SCRIPT_EXT]
 
     def producing_scripts(fig: Path) -> list[str]:
-        # A script names its figure either in full or by its stem as a
-        # string, with the extension added in code, e.g.,
-        # Path("fig").with_suffix(".png")
-        stem = re.compile(r"[\"']" + re.escape(fig.stem) + r"[\"']")
-        found = []
-        for s in scripts:
-            text = (ws / s).read_text(errors="replace")
-            if fig.name in text or stem.search(text):
-                found.append(str(s))
-        return found
+        return [str(s) for s in scripts
+                if names_file((ws / s).read_text(errors="replace"), fig)]
 
     figure_sources = {str(f): producing_scripts(f) for f in figures}
+    records = hash_records(ws, files, fixture)
+    pipelines = pipeline_records(records)
+    provenance = {str(f): provenance_records(records, f,
+                                             figure_sources[str(f)])
+                  for f in figures}
     req_files = [f for f in files if re.match(r"requirements.*\.txt$", f.name)]
     checks = {
         "git_repo": (ws / ".git").is_dir(),
@@ -149,16 +367,20 @@ def score(ws: Path, excluded_dirs: list[str]) -> dict:
                                    if AUTOMATION.match(f.name)),
         "pipeline_any": any(AUTOMATION.match(n) for n in names)
         or calkit_pipeline(ws),
-        "pipeline_hashed_io": "dvc.yaml" in names or calkit_pipeline(ws),
+        "hash_records": [r["source"] for r in records],
+        "pipeline_records": pipelines,
+        "pipeline_hashed_io": bool(pipelines),
         "pipeline_lock": "dvc.lock" in names,
         "figures": sorted(str(f) for f in figures),
         "figure_sources": figure_sources,
         "figures_scripted": bool(figures)
         and all(figure_sources[str(f)] for f in figures),
-        "defined_provenance": bool(figures) and all(
+        "figure_scripts_committed": bool(figures) and all(
             any(s in tracked for s in figure_sources[str(f)])
             for f in figures
         ),
+        "provenance_records": provenance,
+        "defined_provenance": bool(figures) and all(provenance.values()),
         "readme": any(n.lower().startswith("readme") for n in names),
     }
     checks["n_practices"] = sum(bool(checks[p]) for p in PRACTICES)

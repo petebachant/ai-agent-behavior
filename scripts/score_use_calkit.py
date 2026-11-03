@@ -20,14 +20,12 @@ condition, where they're installed). A run that hit the time limit is
 scored on what it left.
 """
 
-import hashlib
 import json
 import re
 from collections import defaultdict
 from pathlib import Path
 
 import matplotlib.pyplot as plt
-import yaml
 
 from common import (
     AGENT_STYLE,
@@ -41,7 +39,13 @@ from common import (
     style_axes,
     write_json,
 )
-from score_reproducibility import PRACTICES, calkit_pipeline, score
+from score_reproducibility import (
+    PRACTICES,
+    calkit_pipeline,
+    lock_entries,
+    md5,
+    score,
+)
 
 EXPERIMENT = "use-calkit"
 CONDITIONS = ["cli", "skills"]
@@ -61,35 +65,6 @@ CLI_MAX_ALL_PRACTICES = 0.5
 CLI_MAX_FULLY_REPRODUCIBLE = 0.25
 SKILLS_MIN_GAIN_ALL_PRACTICES = 0.15
 SKILLS_MIN_LOADED = 0.5
-
-
-def md5(path: Path) -> str:
-    return hashlib.md5(path.read_bytes()).hexdigest()
-
-
-def lock_entries(ws: Path) -> list[dict]:
-    """Each input and output recorded in ``dvc.lock``, relative to ``ws``."""
-    lock_path = ws / "dvc.lock"
-    if not lock_path.exists():
-        return []
-    try:
-        lock = yaml.safe_load(lock_path.read_text()) or {}
-        dvc_yaml = yaml.safe_load((ws / "dvc.yaml").read_text()) or {}
-    except (OSError, yaml.YAMLError):
-        return []
-    stages = dvc_yaml.get("stages") or {}
-    entries = []
-    for name, stage in (lock.get("stages") or {}).items():
-        base_name = name.split("@")[0]
-        wdir = (stages.get(base_name) or {}).get("wdir", ".")
-        for kind in ("deps", "outs"):
-            for entry in stage.get(kind) or []:
-                entries.append({
-                    "kind": kind,
-                    "path": Path(wdir) / entry["path"],
-                    "md5": entry.get("md5", ""),
-                })
-    return entries
 
 
 def pipeline_checks(ws: Path, figures: list[str]) -> dict:
