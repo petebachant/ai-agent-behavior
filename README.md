@@ -162,6 +162,18 @@ others.
   of the old ones, checked against hidden reference values; its wall
   time and tokens measure how quick it was.
 
+Two questions, `prose-only` and `methods-mismatch`, are answered from
+published studies rather than runs of this project's own. Kohler et al.'s
+study of agents reproducing social-science papers from their prose and
+data alone [@kohler2026] is itself reproduced: the
+`reproduce-kohler2026` stage follows the instructions in its released
+material, rerunning its analysis code (cloned at the commit those
+instructions name, since the repository has no license to copy it here)
+on its run artifacts from Zenodo, in an environment from its lock file,
+and `compare-kohler2026` checks the outputs against the numbers printed
+in the paper. That reruns the study's analysis of its agents' outputs,
+not the agent runs themselves.
+
 ## Pre-registration
 
 Hypotheses for each question, with supporting literature from

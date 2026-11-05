@@ -823,14 +823,54 @@ questions:
       own analysis code, at the commit its instructions name, in the
       environment its lock file pins, and the headline numbers are compared
       with the published ones.
+    answer:
+      if all_match: >-
+        Mostly, for well-documented social science, but not entirely. Given
+        only a paper's methods description and its data, agents matched the
+        sign of {lo:.1f}% to {hi:.1f}% of published coefficients, against
+        {guess:.0f}% for always guessing positive, and the largest share of
+        the divergences traced to the paper underspecifying or misstating
+        what its code did [@kohler2026]; those results reproduce exactly
+        from the study's released artifacts. Since a matching sign is the
+        least a reproduction must get right, the prose doesn't replace a
+        script and a defined environment, which here cost a one-time
+        median {ck_tok:,.0f} tokens against {pl_tok:,.0f} for writing a
+        messy project's paper, and made it reproducible in {ck_repro:.0%}
+        of runs against {pl_repro:.0%}.
+      else: >-
+        Open: Kohler et al.'s results [@kohler2026], the evidence on this,
+        don't all reproduce from the study's released artifacts.
+    evidence:
+      - kind: result
+        path: results/kohler2026.json
+        values:
+          all_match: all_match
+          n_out: n_outputs
+          lo: same_sign_min_pct
+          hi: same_sign_max_pct
+          guess: guess_positive_pct
+      - kind: figure
+        path: results/kohler2026/paper_outputs/cell_level/same_sign.pdf
+      - kind: result
+        path: results/messy-paper.json
+        values:
+          ck_tok: summary.calkit.write.overall.median_tokens
+          pl_tok: summary.plain.write.overall.median_tokens
+          ck_repro: summary.calkit.write.overall.frac_reproducible
+          pl_repro: summary.plain.write.overall.frac_reproducible
     notes: >-
-      Open until the reproduction runs. The study doesn't give agents the
-      original code for comparison, so it can't say how much scripts and
-      environments add over the prose, only how far the prose gets; that
-      comparison, on the same papers, would need an experiment of this
-      project's own. Its papers are regressions on tabular data, mostly in
-      Stata and R, which may be better specified by their prose than
-      simulations or signal processing.
+      The reproduction reruns the study's analysis of its agents' outputs,
+      not the agent runs, which need the original papers' data, not all of
+      which may be redistributed. All {n_out} manuscript figures and tables
+      were regenerated; Figure 2a's seven values and every cell of Table A7
+      were compared with the paper, the only outputs whose numbers can be
+      read without the data behind the plots. The study doesn't give
+      agents the original code for comparison, so it shows how far the
+      prose gets, not how much scripts and environments add on the same
+      papers. Its papers are regressions on tabular data, mostly in Stata
+      and R, which may be better specified by their prose than simulations
+      or signal processing. The cost comparison is from this project's
+      messy-paper question, a different task.
   - name: methods-mismatch
     question: >-
       Can AI agents detect when a paper's methods description doesn't match
@@ -845,13 +885,37 @@ questions:
     approach: >-
       The question is answered from the literature: SciCoQA
       [@baumgartner2026], which measures how many known paper-code
-      discrepancies models find, and the error attribution in Kohler et
-      al.'s study [@kohler2026], reproduced as for the prose-only question.
+      discrepancies models find, and the error attribution and its human
+      audit in Kohler et al.'s study [@kohler2026], as published.
+    answer: >-
+      Not reliably. Given a paper and its code, the best of {n_models}
+      models found {best:.1f}% of {n_real} real discrepancies between them,
+      and models struggled most with details the paper leaves out
+      [@baumgartner2026]. Reproducing a paper from its prose and comparing
+      the results with the published ones does surface mismatches, as
+      divergences: with the original code, an LLM traced the largest share
+      of them to the paper underspecifying or misstating what its code
+      did, but people confirmed only {confirmed} of {checked} of its
+      labels for where a divergence came from [@kohler2026].
+    evidence:
+      - kind: result
+        path: data/baumgartner2026-published.json
+        values:
+          n_models: n_models
+          best: best_real_detection_pct
+          n_real: n_discrepancies_real
+      - kind: result
+        path: data/kohler2026-published.json
+        values:
+          confirmed: human_audit.labels_confirmed
+          checked: human_audit.labels_checked
     notes: >-
-      Open until the reproduction runs. Neither study plants a known
-      mismatch in a paper's prose and checks whether an agent reproducing
-      it without the code notices, which would measure detection directly,
-      with unchanged papers as controls for false alarms.
+      The numbers are as published: Kohler et al.'s human-audit analysis is
+      in their reproduction instructions but wasn't rerun here. Neither
+      study plants a known mismatch in a paper's prose and checks whether
+      an agent reproducing it without the code notices, which would measure
+      detection directly, with unchanged papers as controls for false
+      alarms.
 
 requirements:
   - kind: app
@@ -910,6 +974,19 @@ environments:
   fixture:
     kind: uv-venv
     path: envs/fixture-requirements.txt
+    python: "3.13"
+
+  # Kohler et al.'s analysis, at the versions their lock file pins, on the
+  # Python they ran it with
+  kohler2026:
+    kind: uv-venv
+    path: envs/kohler2026/requirements.txt
+    python: "3.10"
+
+  # Only for reading text out of PDFs, kept apart from the main environment
+  pdf:
+    kind: uv-venv
+    path: envs/pdf/requirements.txt
     python: "3.13"
 
 pipeline:
@@ -1221,3 +1298,74 @@ pipeline:
           storage: git
         - path: figures/messy-paper.png
           storage: git
+    reproduce-kohler2026:
+      kind: python-script
+      script_path: scripts/reproduce_kohler2026.py
+      environment: kohler2026
+      description: >-
+        Rerun Kohler et al.'s analysis on their released run artifacts, as
+        their reproduction instructions say.
+      inputs:
+        - data/kohler2026
+      outputs:
+        - results/kohler2026/paper_outputs
+        - path: results/kohler2026/provenance.json
+          storage: git
+        - path: results/kohler2026/analyze.log
+          storage: git
+    compare-kohler2026:
+      kind: python-script
+      script_path: scripts/compare_kohler2026.py
+      environment: pdf
+      description: >-
+        Compare the reproduced Kohler et al. outputs with the values printed
+        in their paper.
+      inputs:
+        - data/kohler2026-published.json
+        - results/kohler2026/paper_outputs
+        - results/kohler2026/provenance.json
+      outputs:
+        - path: results/kohler2026.json
+          storage: git
+
+figures:
+  - path: results/kohler2026/paper_outputs/cell_level/same_sign.pdf
+    title: Kohler et al.'s Figure 2a, reproduced
+    description: >-
+      The share of reproduced coefficients with the same sign as the
+      original paper's, per agent system [@kohler2026].
+    stage: reproduce-kohler2026
+
+datasets:
+  - path: data/kohler2026
+    imported_from:
+      doi: 10.5281/zenodo.22070275
+    title: >-
+      Read the Paper, Write the Code: Agentic Reproduction of Social-Science
+      Results - Reproduction Material
+    description: >-
+      Kohler et al.'s released run artifacts [@kohler2026data], CC BY 4.0.
+  - path: data/kohler2026-published.json
+    imported_from:
+      doi: 10.48550/arXiv.2604.21965
+    title: Values printed in Kohler et al.'s paper
+    description: >-
+      Transcribed from arXiv:2604.21965v2 [@kohler2026]: Figure 2a's bar
+      labels, Table A7's cells, the number of manuscript outputs its
+      reproduction instructions name, the "guess positive" baseline, and
+      its human audit's counts.
+  - path: data/baumgartner2026-published.json
+    imported_from:
+      doi: 10.48550/arXiv.2601.12910
+    title: Values printed in SciCoQA's paper
+    description: >-
+      Transcribed from the abstract of arXiv:2601.12910v3
+      [@baumgartner2026].
+
+misc:
+  - path: envs/kohler2026/requirements.txt
+    title: Kohler et al. analysis lock
+    imported_from:
+      git_repo_url: https://github.com/benjamin-kohler/social_science_replicability.git
+      path: release/analysis-requirements-lock.txt
+      git_ref: 9eb1e6fdd7de5fb34bc3a903d6c5397aaf1e67be
