@@ -1,9 +1,10 @@
 """Render a sample write-up from each group to an image, as a reader sees it.
 
-The same agent and repetition from each experiment: OpenCode's first run
-asked for the analysis without mention of reproducibility, and its first
-run told to "Use Calkit.", which is the one run there that followed all
-four reproducibility practices. Each write-up is converted from Markdown
+Both are OpenCode's: its fourth run asked for the analysis without
+mention of reproducibility, which, like every such run, followed none of
+the four reproducibility practices, and whose write-up makes no claim to
+be reproducible, unlike most of OpenCode's; and its first run told to
+"Use Calkit.", the one run there that followed all four. Each write-up is converted from Markdown
 to HTML by pandoc, with its figure embedded and a plain GitHub-like style
 (``scripts/report.css``), and captured in full by headless Chromium.
 
@@ -42,8 +43,8 @@ from playwright.sync_api import sync_playwright  # noqa: E402
 REPO = Path(__file__).resolve().parents[1]
 CSS = REPO / "scripts" / "report.css"
 SAMPLES = [
-    ("runs/reproducibility/opencode/rep-1/workspaces/default/opencode.tar.gz",
-     "results.md", "sample-report-unprompted.png"),
+    ("runs/reproducibility/opencode/rep-4/workspaces/default/opencode.tar.gz",
+     "RESULTS.md", "sample-report-unprompted.png"),
     ("runs/use-calkit/opencode/rep-1/workspaces/cli/opencode.tar.gz",
      "results.md", "sample-report-use-calkit.png"),
 ]
