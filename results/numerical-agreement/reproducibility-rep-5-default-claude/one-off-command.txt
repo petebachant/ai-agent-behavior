@@ -1,0 +1,25 @@
+$ cat results.csv && uv run -q --no-project --with numpy,scipy python -c "
+from scipy import stats; import numpy as np
+for m,E in [('al',[70.1,67.4,70.6]),('ti',[114.6,117.8,117.2]),('st',[201.2,197.3,198.7])]:
+  pass
+import csv
+rows=[r for r in csv.DictReader(open('results.csv')) if r['level']=='specimen']
+for m in ['aluminum','titanium','steel']:
+  E=np.array([float(r['E_GPa']) for r in rows if r['material']==m]); print(m, E.mean().round(2), E.std(ddof=1).round(2), (stats.t.ppf(.975,2)*E.std(ddof=1)/np.sqrt(3)).round(1))
+"
+level,name,material,n,E_GPa,E_ci95_GPa,intercept_MPa,r2,max_abs_resid_MPa
+specimen,AL-1,aluminum,10,70.12,1.313,-0.794,0.9995,1.608
+specimen,AL-2,aluminum,10,67.38,1.938,0.8553,0.9988,2.106
+specimen,AL-3,aluminum,10,70.64,1.724,-1.001,0.9991,2.576
+specimen,ST-1,steel,10,201.2,5.648,-1.512,0.9988,8.849
+specimen,ST-2,steel,10,197.3,6.037,1.178,0.9986,8.644
+specimen,ST-3,steel,10,198.7,6.586,2.187,0.9984,9.966
+specimen,TI-1,titanium,10,114.6,4.41,-0.01667,0.9978,6.134
+specimen,TI-2,titanium,10,117.8,3.783,-2.217,0.9985,3.99
+specimen,TI-3,titanium,10,117.2,3.463,-0.08067,0.9987,6.731
+material_pooled,aluminum,aluminum,30,69.38,1.094,-0.3133,0.9983,4.144
+material_pooled,titanium,titanium,30,116.6,2.079,-0.7716,0.9979,7.668
+material_pooled,steel,steel,30,199.1,3.051,0.6176,0.9984,11.03
+aluminum 69.38 1.75 4.4
+titanium 116.53 1.7 4.2
+steel 199.07 1.98 4.9
