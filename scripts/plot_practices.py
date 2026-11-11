@@ -26,6 +26,9 @@ from score_reproducibility import PRACTICES, PREREQUISITES
 
 AGENT_NAMES = {"claude": "Claude Code", "codex": "Codex",
                "opencode": "OpenCode"}
+# Saving a spec is part of managing an environment too, so name the bar for
+# what the practice requires beyond that
+LABELS = {"environment_management": "Environment lock saved"}
 FIGURES = [
     ("reproducibility", "no-git", "practices-unprompted.png"),
     ("use-calkit", "cli", "practices-use-calkit.png"),
@@ -39,7 +42,7 @@ def measures() -> dict[str, str]:
         if key in PREREQUISITES:
             measure, prereq_label = PREREQUISITES[key]
             out[measure] = prereq_label
-        out[key] = label
+        out[key] = LABELS.get(key, label)
     return out
 
 
@@ -47,7 +50,7 @@ def plot(by_agent: dict, path) -> None:
     shown = measures()
     labels = [v.replace(" ", "\n", 1) if v.count(" ") == 1
               else v.replace(" with ", "\nwith ").replace(" code ", " code\n")
-              .replace(" spec ", "\nspec ")
+              .replace(" spec ", "\nspec ").replace(" lock ", "\nlock ")
               for v in shown.values()]
     # Fixed agent order, so each keeps its color across figures
     agents = [a for a in AGENT_STYLE if a in by_agent]
