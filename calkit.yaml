@@ -609,6 +609,14 @@ questions:
           opencode_cli: summary.cli.by_agent.opencode.frac_fully_reproducible
           sk_prov: summary.skills.overall.frac_defined_provenance
           cli_prov: summary.cli.overall.frac_defined_provenance
+      - kind: result
+        path: results/use-calkit.json
+        values:
+          sk_auto: summary.skills.overall.frac_writeup_automated
+          cli_auto: summary.cli.overall.frac_writeup_automated
+          sk_q: summary.skills.overall.frac_question_templated
+          cli_q: summary.cli.overall.frac_question_templated
+          max_change: skills_vs_cli.max_abs_practice_change
     notes: >-
       With {n} runs per condition, one run moves a share by about 7
       points, so the pre-registered 15-point gain is about two runs. The
@@ -626,6 +634,12 @@ questions:
       with the skills defined provenance, against {cli_prov:.0%} without, so
       almost no run in either condition followed all four practices. The
       answer was the same under each definition.
+      What the skills did change was how the write-up was made: with them,
+      {sk_auto:.0%} of runs had a script write it, against {cli_auto:.0%}
+      without, and {sk_q:.0%} templated a Calkit question's answer from a
+      results file, against {cli_q:.0%}, while no practice's share changed by
+      more than {max_change:.0%} of runs (see the writeup-automation
+      question).
   - name: numerical-agreement
     question: >-
       Did all the agents get the same numerical results?
@@ -716,6 +730,62 @@ questions:
       this way: no run asked without mention of reproducibility generated its
       write-up in a pipeline ({gen_default:.0%}), against {gen_cli:.0%} of
       runs told to use Calkit and {gen_skills:.0%} with its skills.
+  - name: writeup-automation
+    question: >-
+      Do AI agents automate putting results into their write-ups, or copy
+      them in by hand?
+    approach: >-
+      In the reproducibility and use-calkit experiments, how each run's
+      write-up was produced is classified from its workspace and session
+      transcript: written by a script saved in the workspace that the agent
+      didn't then edit (automated), written by code passed straight to an
+      interpreter, or written with the agent's file tools, typing in the
+      numbers it had seen. Whether it used Calkit's own value injection (a
+      Markdown stage or `calkit value` tags), and whether a Calkit question's
+      answer was templated from a results file, are recorded too.
+    answer:
+      if typed_def > 0.5 and auto_cli > 0.5 and inj_cli == 0 and inj_sk == 0: >-
+        Mostly by hand, unless told to use Calkit. Asked without mention of
+        reproducibility, agents typed the write-up themselves in
+        {typed_def:.0%} of {n} runs, Claude Code in {claude_typed:.0%} of its
+        runs, and a saved script wrote it in {auto_def:.0%}. Told to use
+        Calkit, a script wrote it in {auto_cli:.0%} of runs, and in
+        {auto_sk:.0%} with Calkit's skills, though none used Calkit's own
+        value injection for the write-up.
+      else: >-
+        Of {n} runs asked without mention of reproducibility, agents typed
+        the write-up themselves in {typed_def:.0%} and a saved script wrote it
+        in {auto_def:.0%}. Told to use Calkit, a script wrote it in
+        {auto_cli:.0%} of runs, and in {auto_sk:.0%} with Calkit's skills;
+        Calkit's own value injection was used in {inj_cli:.0%} and
+        {inj_sk:.0%}.
+    evidence:
+      - kind: result
+        path: results/reproducibility.json
+        values:
+          n: summary.default.overall.n_runs
+          typed_def: summary.default.overall.frac_writeup_typed
+          auto_def: summary.default.overall.frac_writeup_automated
+          claude_typed: summary.default.by_agent.claude.frac_writeup_typed
+          typed_nogit: summary.no-git.overall.frac_writeup_typed
+      - kind: result
+        path: results/use-calkit.json
+        values:
+          auto_cli: summary.cli.overall.frac_writeup_automated
+          auto_sk: summary.skills.overall.frac_writeup_automated
+          inj_cli: summary.cli.overall.frac_writeup_calkit_injection
+          inj_sk: summary.skills.overall.frac_writeup_calkit_injection
+          q_cli: summary.cli.overall.frac_question_templated
+          q_sk: summary.skills.overall.frac_question_templated
+    notes: >-
+      Asked after the runs, so no hypothesis was registered. It may become a
+      fifth practice: automate the propagation of figures and results into
+      documents rather than copying them. Typing numbers in is how the one
+      mismatched modulus reached a write-up (see the numerical-agreement
+      question). The runs without Git were much the same, typing the
+      write-up in {typed_nogit:.0%}. Calkit's question answers were where
+      its value injection was used: {q_sk:.0%} of runs with the skills
+      templated one from a results file, against {q_cli:.0%} without.
   - name: failing-test
     question: >-
       How often will AI agents change a test to make buggy code pass
@@ -1374,6 +1444,7 @@ pipeline:
       inputs:
         - agents
         - scripts/common.py
+        - scripts/score_reproducibility.py
         - experiments/reproducibility/fixtures
         - runs/reproducibility
         - runs/use-calkit

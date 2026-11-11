@@ -35,9 +35,8 @@ from collections import defaultdict
 from pathlib import Path
 from statistics import mean
 
-import yaml
-
 from common import REPO, extracted, load_runs, write_json
+from score_reproducibility import pipeline_outputs, write_ups
 
 EXPERIMENTS = ["reproducibility", "use-calkit"]
 DATA = (REPO / "experiments" / "reproducibility" / "fixtures" / "default"
@@ -79,31 +78,8 @@ def correct_moduli() -> dict[str, list[float]]:
     return out
 
 
-def write_ups(ws: Path) -> list[Path]:
-    return [p for p in sorted(ws.rglob("*.md"))
-            if not set(p.relative_to(ws).parts) & SKIP_DIRS
-            and "template" not in p.name.lower()
-            and p.name.lower() != "readme.md"]
-
-
 def write_up(ws: Path) -> str:
     return "\n".join(p.read_text(errors="replace") for p in write_ups(ws))
-
-
-def pipeline_outputs(ws: Path) -> set[str]:
-    """Paths the run's own pipeline writes, from its dvc.yaml."""
-    try:
-        stages = (yaml.safe_load((ws / "dvc.yaml").read_text()) or {}).get(
-            "stages") or {}
-    except (OSError, yaml.YAMLError):
-        return set()
-    out = set()
-    for stage in stages.values():
-        wdir = Path((stage or {}).get("wdir", "."))
-        for o in (stage or {}).get("outs") or []:
-            path = o if isinstance(o, str) else next(iter(o))
-            out.add(str(wdir / path))
-    return out
 
 
 def tool_runs(run: dict) -> list[tuple[str, str]]:

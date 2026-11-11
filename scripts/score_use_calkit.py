@@ -45,6 +45,7 @@ from score_reproducibility import (
     lock_entries,
     md5,
     score,
+    writeup_checks,
 )
 
 EXPERIMENT = "use-calkit"
@@ -153,7 +154,8 @@ def summarize(records: list[dict]) -> dict:
         "pipeline_current", "figures_from_pipeline", "committed",
         "ran_calkit", "loaded_skill", "timed_out", "has_commits",
         "env_declared", "data_source_defined", "uncited_reference_values",
-        "figures_scripted",
+        "figures_scripted", "writeup_automated", "writeup_typed",
+        "writeup_calkit_injection", "question_templated",
     ]
     out = {"n_runs": len(records)}
     out.update({f"frac_{k}": frac(records, k) for k in keys})
@@ -161,6 +163,19 @@ def summarize(records: list[dict]) -> dict:
         sum(r["n_practices"] for r in records) / len(records)
         if records else None
     )
+    return out
+
+
+def skills_vs_cli(summary: dict) -> dict:
+    """How the share of runs with each practice, and with the write-up
+    automated, changed with the skills."""
+    cli = summary["cli"]["overall"]
+    skills = summary["skills"]["overall"]
+    keys = [*PRACTICES, "writeup_automated", "question_templated"]
+    out = {f"change_{k}": skills[f"frac_{k}"] - cli[f"frac_{k}"]
+           for k in keys}
+    out["max_abs_practice_change"] = max(abs(out[f"change_{k}"])
+                                         for k in PRACTICES)
     return out
 
 
@@ -234,6 +249,7 @@ def main() -> None:
             checks = score(ws, run.get("excluded_dirs", []),
                            texts=read_session(run)["texts"])
             checks.update(pipeline_checks(ws, checks["figures"]))
+            checks.update(writeup_checks(ws, run))
             checks["calkit_project"] = (ws / "calkit.yaml").exists()
             checks["calkit_pipeline"] = calkit_pipeline(ws)
         checks["committed"] = (checks["version_control"]
@@ -267,6 +283,7 @@ def main() -> None:
         "description": __doc__.strip(),
         "summary": summary,
         "hypothesis": hypothesis_checks(summary),
+        "skills_vs_cli": skills_vs_cli(summary),
         "failed_runs": failed,
         "runs": records,
     })

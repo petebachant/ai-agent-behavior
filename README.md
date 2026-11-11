@@ -132,6 +132,12 @@ others.
   saved, i.e., every figure is made by a script in the project rather than
   code passed straight to an interpreter, for practice 3.
 
+  How each write-up was produced is recorded too, as a candidate fifth
+  practice, automating the propagation of figures and results into
+  documents rather than copying them: written by a saved script the agent
+  didn't then edit, by code passed straight to an interpreter, or typed
+  with the agent's file tools.
+
   The moduli each write-up reports, in this experiment and `use-calkit`,
   are also checked against those computed from the data
   (`score-numerical-agreement`).

@@ -31,6 +31,24 @@ management, and whether the source code was saved, i.e., every figure is
 named by a script in the workspace, not made with code passed straight to
 an interpreter (``figures_scripted``), for the pipeline.
 
+Also recorded, as a candidate fifth practice, is how the write-up was
+produced, from the workspace and the session transcript (``writeup_method``):
+
+- ``pipeline script`` or ``saved script``: a script in the workspace writes
+  it, as a stage of the run's own pipeline or not, and the agent didn't
+  then edit it by hand,
+- ``saved script, then edited``: the same, but the agent then edited it,
+- ``one-off command``: code passed straight to an interpreter wrote it, so
+  nothing saved can write it again, or
+- ``typed``: the agent wrote it with its file tools or a shell redirect,
+  typing in the numbers it had seen.
+
+``writeup_automated`` is the first case, i.e., figures and results reach
+the write-up without being copied by hand. Whether it uses Calkit's own
+value injection (a Markdown stage, or ``calkit value`` tags) and whether a
+Calkit question's answer is templated from a results file are recorded
+too.
+
 Hashes are recorded by any of:
 
 - a DVC lock file (``dvc.lock``, which Calkit also writes), whose stages
@@ -482,6 +500,149 @@ def data_source(ws: Path, files: list[Path], fixture: Path,
     }
 
 
+WRITE_CALL = re.compile(
+    r"write_text|open\([^)]*['\"]w['\"]|writeLines|cat\([^)]*file\s*=|"
+    r"sink\(|\.write\(",
+    re.IGNORECASE,
+)
+CODE_EXT = {".py", ".r", ".jl", ".sh"}
+SKIP_WRITEUP_DIRS = {".venv", "venv", "env", ".calkit", ".git", ".dvc",
+                     "node_modules"}
+
+
+def write_ups(ws: Path) -> list[Path]:
+    """The Markdown write-ups in a workspace, not READMEs or templates."""
+    return [p for p in sorted(ws.rglob("*.md"))
+            if not set(p.relative_to(ws).parts) & SKIP_WRITEUP_DIRS
+            and "template" not in p.name.lower()
+            and p.name.lower() != "readme.md"]
+
+
+def pipeline_outputs(ws: Path) -> set[str]:
+    """Paths the run's own pipeline writes, from its dvc.yaml."""
+    try:
+        stages = (yaml.safe_load((ws / "dvc.yaml").read_text()) or {}).get(
+            "stages") or {}
+    except (OSError, yaml.YAMLError):
+        return set()
+    out = set()
+    for stage in stages.values():
+        wdir = Path((stage or {}).get("wdir", "."))
+        for o in (stage or {}).get("outs") or []:
+            path = o if isinstance(o, str) else next(iter(o))
+            out.add(str(wdir / path))
+    return out
+
+
+def file_writes(run: dict) -> list[tuple[str, str]]:
+    """What the agent wrote to files outside a script, from its transcript:
+    (kind, text) for each file tool call (text is the path) and each shell
+    command (text is the command)."""
+    calls = []
+    path = run["session_dir"] / "transcript.jsonl"
+    for line in path.read_text().splitlines():
+        try:
+            event = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        if not isinstance(event, dict):
+            continue
+        kind = event.get("type")
+        if run["cli"] == "claude" and kind == "assistant":
+            for block in event.get("message", {}).get("content", []):
+                if block.get("type") != "tool_use":
+                    continue
+                inp = block.get("input", {})
+                if block.get("name") in ("Write", "Edit", "MultiEdit"):
+                    calls.append(("file", inp.get("file_path", "")))
+                elif block.get("name") == "Bash":
+                    calls.append(("shell", inp.get("command", "")))
+        elif run["cli"] == "codex" and kind == "item.completed":
+            item = event.get("item", {})
+            if item.get("type") == "file_change":
+                calls += [("file", c.get("path", ""))
+                          for c in item.get("changes", [])]
+            elif item.get("type") == "command_execution":
+                calls.append(("shell", item.get("command", "")))
+        elif run["cli"] == "opencode" and kind == "tool_use":
+            part = event.get("part", {})
+            inp = part.get("state", {}).get("input", {})
+            if part.get("tool") in ("write", "edit"):
+                calls.append(("file", inp.get("filePath")
+                              or inp.get("path") or ""))
+            elif part.get("tool") in ("patch", "apply_patch"):
+                calls.append(("shell", inp.get("patchText")
+                              or json.dumps(inp)))
+            elif part.get("tool") in ("bash", "shell"):
+                calls.append(("shell", inp.get("command", "")))
+    return calls
+
+
+def writeup_checks(ws: Path, run: dict) -> dict:
+    """How the write-up was produced (see the docstring)."""
+    docs = write_ups(ws)
+    names = [d.name for d in docs]
+    scripts = {p: p.read_text(errors="replace") for p in ws.rglob("*")
+               if p.is_file() and p.suffix.lower() in CODE_EXT
+               and not set(p.relative_to(ws).parts) & SKIP_WRITEUP_DIRS}
+    writers = sorted(str(p.relative_to(ws)) for p, text in scripts.items()
+                     if WRITE_CALL.search(text)
+                     and any(n in text for n in names))
+    script_names = [p.name for p in scripts]
+    typed, one_off = [], []
+    for kind, text in file_writes(run):
+        for n in names:
+            if kind == "file" and text.endswith(n):
+                typed.append(f"file tool: {n}")
+            elif kind == "shell" and n in text:
+                if re.search(rf"(>\s*|\*\*\* (Add|Update) File:\s*)\S*"
+                             rf"{re.escape(n)}|tee\s+\S*{re.escape(n)}", text):
+                    typed.append(f"shell write: {n}")
+                elif (WRITE_CALL.search(text)
+                      and not any(s in text for s in script_names)):
+                    one_off.append(" ".join(text.split())[:300])
+    outputs = pipeline_outputs(ws)
+    in_pipeline = bool(docs) and all(str(d.relative_to(ws)) in outputs
+                                     for d in docs)
+    if writers:
+        method = ("pipeline script" if in_pipeline else "saved script") + (
+            ", then edited" if typed else "")
+    elif typed:
+        method = "typed"
+    elif one_off:
+        method = "one-off command"
+    else:
+        method = "unknown"
+    info = {}
+    if (ws / "calkit.yaml").exists():
+        try:
+            info = yaml.safe_load((ws / "calkit.yaml").read_text()) or {}
+        except yaml.YAMLError:
+            info = {}
+    stages = ((info.get("pipeline") or {}).get("stages") or {}).values()
+    questions = [q for q in info.get("questions") or []
+                 if isinstance(q, dict)]
+    return {
+        "writeup_files": [str(d.relative_to(ws)) for d in docs],
+        "writeup_writers": writers,
+        "writeup_typed_by": sorted(set(typed)),
+        "writeup_one_off": one_off,
+        "writeup_in_pipeline": in_pipeline,
+        "writeup_method": method,
+        "writeup_automated": bool(writers) and not typed,
+        "writeup_typed": method == "typed",
+        "writeup_calkit_injection": any(
+            isinstance(st, dict) and st.get("kind") == "markdown"
+            for st in stages
+        ) or any(re.search(r"<!--\s*calkit\s+value",
+                           d.read_text(errors="replace")) for d in docs),
+        "question_templated": any(
+            re.search(r"\{\w+(:[^}]*)?\}", str(q.get("answer", "")))
+            for q in questions
+        ),
+    }
+
+
 def files_in(ws: Path) -> list[Path]:
     return sorted(p.relative_to(ws) for p in ws.rglob("*")
                   if p.is_file() and ".git" not in p.relative_to(ws).parts)
@@ -620,7 +781,9 @@ def summarize(records: list[dict]) -> dict:
                               "has_commits", "env_declared",
                               "venv_created", "figures_scripted",
                               "traced_figures", "data_source_defined",
-                              "uncited_reference_values", "readme"]
+                              "uncited_reference_values", "readme",
+                              "writeup_automated", "writeup_typed",
+                              "writeup_calkit_injection"]
     out = {"n_runs": len(records)}
     for k in keys:
         out[f"frac_{k}"] = frac(records, lambda r: r["checks"][k])
@@ -678,6 +841,7 @@ def main() -> None:
         with extracted(run["workspace_tar"]) as ws:
             checks = score(ws, run.get("excluded_dirs", []),
                            texts=session["texts"])
+            checks.update(writeup_checks(ws, run))
         records.append({
             "run_id": run["run_id"],
             "condition": run["condition"],
