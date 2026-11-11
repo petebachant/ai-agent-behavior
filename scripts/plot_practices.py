@@ -1,5 +1,8 @@
 """Plot the share of each agent's runs following the four practices.
 
+Whether the source code was saved, a prerequisite of a pipeline, is shown
+just before the pipeline practice.
+
 One figure for the reproducibility experiment's no-git condition, where
 agents weren't told about reproducibility (the condition with Git
 installed scored the same), and one for the use-calkit experiment's
@@ -19,7 +22,7 @@ from common import (
     save_fig,
     style_axes,
 )
-from score_reproducibility import PRACTICES
+from score_reproducibility import PRACTICES, SOURCE_CODE
 
 AGENT_NAMES = {"claude": "Claude Code", "codex": "Codex",
                "opencode": "OpenCode"}
@@ -29,25 +32,37 @@ FIGURES = [
 ]
 
 
+def measures() -> dict[str, str]:
+    """The practices, with source code saved just before the pipeline."""
+    out = {}
+    for key, label in PRACTICES.items():
+        if key == "pipeline_hashed_io":
+            out.update(SOURCE_CODE)
+        out[key] = label
+    return out
+
+
 def plot(by_agent: dict, path) -> None:
+    shown = measures()
     labels = [v.replace(" ", "\n", 1) if v.count(" ") == 1
-              else v.replace(" with ", "\nwith ")
-              for v in PRACTICES.values()]
+              else v.replace(" with ", "\nwith ").replace(" code ",
+                                                           " code\n")
+              for v in shown.values()]
     # Fixed agent order, so each keeps its color across figures
     agents = [a for a in AGENT_STYLE if a in by_agent]
     width = 0.8 / len(agents)
-    fig, ax = plt.subplots(figsize=(7.2, 3.8))
+    fig, ax = plt.subplots(figsize=(8.4, 3.8))
     style_axes(ax)
     for i, agent in enumerate(agents):
         x = [j + (i - (len(agents) - 1) / 2) * width
-             for j in range(len(PRACTICES))]
-        vals = [100 * by_agent[agent][f"frac_{p}"] for p in PRACTICES]
+             for j in range(len(shown))]
+        vals = [100 * by_agent[agent][f"frac_{p}"] for p in shown]
         bars = ax.bar(x, vals, width=width, color=AGENT_STYLE[agent]["color"],
                       edgecolor="white", linewidth=2,
                       label=AGENT_NAMES[agent])
         ax.bar_label(bars, labels=[f"{v:.0f}%" for v in vals], padding=2,
                      fontsize=8, color=TEXT_SECONDARY)
-    ax.set_xticks(range(len(PRACTICES)), labels, color=TEXT)
+    ax.set_xticks(range(len(shown)), labels, color=TEXT)
     ax.set_ylim(0, 112)
     ax.set_yticks([0, 25, 50, 75, 100], ["0%", "25%", "50%", "75%", "100%"])
     n = by_agent[agents[0]]["n_runs"]

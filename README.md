@@ -126,6 +126,11 @@ others.
      or ask, and cite any reference values quoted. Comparing results with
      "typical handbook values" without a citation breaks this practice.
 
+  Whether the source code was saved, i.e., every figure is made by a
+  script in the project rather than code passed straight to an
+  interpreter, is scored too, as a prerequisite of practice 3 rather than
+  a practice of its own.
+
   In a `no-git` condition the same request is made on a machine without
   Git, and the sessions are checked for whether agents try Git, notice it
   is missing, or suggest or attempt installing it.

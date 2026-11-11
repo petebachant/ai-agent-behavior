@@ -24,6 +24,11 @@ file with where it came from (e.g., "provided by", "collected by",
 data, where it came from, or for its ``created_by`` or ``imported_from``.
 Matching text is saved with each run so the classification can be audited.
 
+Also scored, as a prerequisite of the pipeline practice rather than a
+practice of its own, is whether the source code was saved: every figure is
+named by a script in the workspace (``figures_scripted``), not made with
+code passed straight to an interpreter.
+
 Hashes are recorded by any of:
 
 - a DVC lock file (``dvc.lock``, which Calkit also writes), whose stages
@@ -86,6 +91,8 @@ PRACTICES = {
     "pipeline_hashed_io": "Pipeline with hashed I/O",
     "defined_provenance": "Defined provenance",
 }
+# A prerequisite of a pipeline, shown beside the practices but not one
+SOURCE_CODE = {"figures_scripted": "Source code saved"}
 ENV_SPECS = re.compile(
     r"^(requirements.*\.txt|pyproject\.toml|environment\.ya?ml|Pipfile|"
     r"pixi\.toml|setup\.py|setup\.cfg|conda\.ya?ml|renv\.lock|Project\.toml)$"
