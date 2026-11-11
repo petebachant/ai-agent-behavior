@@ -1,10 +1,10 @@
 """Score whether agents told to use Calkit worked reproducibly.
 
-Each final workspace is checked for the same four practices as in the
+Each final workspace is checked for the same five practices as in the
 reproducibility experiment (see ``score_reproducibility.py``): version
-control, environment management, a pipeline with hashed I/O, and defined
-provenance. A run is also checked for whether its work is fully
-reproducible, which needs, besides all four practices:
+control, environment management, a pipeline with hashed I/O, defined
+provenance, and an automated write-up. A run is also checked for whether
+its work is fully reproducible, which needs, besides all five practices:
 
 - pipeline current: the pipeline was run (there is a ``dvc.lock``) and the
   workspace still matches it, i.e., every file the lock records as a stage's
@@ -45,7 +45,7 @@ from score_reproducibility import (
     lock_entries,
     md5,
     score,
-    writeup_checks,
+    wrap_label,
 )
 
 EXPERIMENT = "use-calkit"
@@ -57,7 +57,7 @@ SKILL = re.compile(
 )
 METRICS = {
     **PRACTICES,
-    "all_practices": "All four",
+    "all_practices": "All five",
     "fully_reproducible": "Fully\nreproducible",
 }
 # Pre-registered thresholds
@@ -154,8 +154,8 @@ def summarize(records: list[dict]) -> dict:
         "pipeline_current", "figures_from_pipeline", "committed",
         "ran_calkit", "loaded_skill", "timed_out", "has_commits",
         "env_declared", "data_source_defined", "uncited_reference_values",
-        "figures_scripted", "writeup_automated", "writeup_typed",
-        "writeup_calkit_injection", "question_templated",
+        "figures_scripted", "writeup_typed", "writeup_calkit_injection",
+        "question_templated", "all_four_practices",
     ]
     out = {"n_runs": len(records)}
     out.update({f"frac_{k}": frac(records, k) for k in keys})
@@ -171,11 +171,11 @@ def skills_vs_cli(summary: dict) -> dict:
     automated, changed with the skills."""
     cli = summary["cli"]["overall"]
     skills = summary["skills"]["overall"]
-    keys = [*PRACTICES, "writeup_automated", "question_templated"]
+    keys = [*PRACTICES, "question_templated"]
     out = {f"change_{k}": skills[f"frac_{k}"] - cli[f"frac_{k}"]
            for k in keys}
-    out["max_abs_practice_change"] = max(abs(out[f"change_{k}"])
-                                         for k in PRACTICES)
+    out["max_abs_change_first_four"] = max(
+        abs(out[f"change_{k}"]) for k in list(PRACTICES)[:4])
     return out
 
 
@@ -207,7 +207,7 @@ def hypothesis_checks(summary: dict) -> dict:
 
 
 def plot(summary: dict, path: Path) -> None:
-    fig, axes = plt.subplots(1, len(CONDITIONS), figsize=(13, 4.2),
+    fig, axes = plt.subplots(1, len(CONDITIONS), figsize=(15, 4.4),
                              sharey=True)
     titles = {"cli": "Calkit installed", "skills": "Calkit and its skills"}
     for ax, cond in zip(axes, CONDITIONS):
@@ -225,14 +225,12 @@ def plot(summary: dict, path: Path) -> None:
             ax.bar_label(bars, labels=[f"{v:.0f}%" for v in vals],
                          padding=2, fontsize=7, color=TEXT_SECONDARY)
         ax.set_xticks(range(len(METRICS)),
-                      [v.replace(" with ", "\nwith ")
-                       .replace(" management", "\nmanagement")
-                       .replace("Defined ", "Defined\n")
-                       for v in METRICS.values()], fontsize=8)
+                      [wrap_label(v) for v in METRICS.values()], fontsize=8)
         ax.set_ylim(0, 112)
         ax.set_title(titles[cond], color=TEXT, loc="left", fontsize=11)
     axes[0].set_ylabel("Runs (%)", color=TEXT)
-    axes[-1].legend(frameon=False, ncol=3, loc="upper right")
+    axes[-1].legend(frameon=False, ncol=3, loc="lower right",
+                    bbox_to_anchor=(1.0, 1.02))
     fig.suptitle("Reproducible work when told to use Calkit",
                  color=TEXT, x=0.01, ha="left")
     fig.tight_layout()
@@ -246,10 +244,8 @@ def main() -> None:
             failed.append(run["run_id"])
             continue
         with extracted(run["workspace_tar"]) as ws:
-            checks = score(ws, run.get("excluded_dirs", []),
-                           texts=read_session(run)["texts"])
+            checks = score(ws, run.get("excluded_dirs", []), run)
             checks.update(pipeline_checks(ws, checks["figures"]))
-            checks.update(writeup_checks(ws, run))
             checks["calkit_project"] = (ws / "calkit.yaml").exists()
             checks["calkit_pipeline"] = calkit_pipeline(ws)
         checks["committed"] = (checks["version_control"]

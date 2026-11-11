@@ -1,4 +1,4 @@
-"""Plot the share of each agent's runs following the four practices.
+"""Plot the share of each agent's runs following the five practices.
 
 Each prerequisite, an environment spec saved and the source code saved,
 is shown just before the practice it leads to.
@@ -55,7 +55,7 @@ def plot(by_agent: dict, path) -> None:
     # Fixed agent order, so each keeps its color across figures
     agents = [a for a in AGENT_STYLE if a in by_agent]
     width = 0.8 / len(agents)
-    fig, ax = plt.subplots(figsize=(9.6, 3.8))
+    fig, ax = plt.subplots(figsize=(11, 3.8))
     style_axes(ax)
     for i, agent in enumerate(agents):
         x = [j + (i - (len(agents) - 1) / 2) * width

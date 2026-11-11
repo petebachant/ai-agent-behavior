@@ -172,8 +172,8 @@ questions:
   - name: reproducibility
     question: >-
       Will AI agents follow reproducibility best practices (version control,
-      environment management, pipeline with hashed I/O, defined provenance)
-      by default?
+      environment management, pipeline with hashed I/O, defined provenance,
+      automated write-up) by default?
     hypothesis: >-
       No. Asked for an everyday analysis without mention of
       reproducibility, agents will write a script and its outputs but rarely
@@ -197,14 +197,16 @@ questions:
       created by hand: a record of where the CSV came from, such as Calkit's
       `created_by` or `imported_from` or a note that the user supplied it, or
       the agent asking for one, and a citation for any reference values
-      quoted, such as typical handbook moduli. Whether the code that made
-      each figure was saved as a script is recorded too, as a prerequisite of
-      a pipeline.
+      quoted, such as typical handbook moduli, and an automated write-up: a
+      script saved in the workspace writes the write-up, and the agent
+      doesn't then edit it by hand. Whether the code that made each figure
+      was saved as a script is recorded too, as a prerequisite of a pipeline.
     answer:
       if practices == 0 and nogit_practices == 0: >-
         No. In none of the {n} runs on an ordinary machine did an agent use
         version control, record the exact package versions it used, set up
-        a pipeline, or define where its data came from, even though
+        a pipeline, define where its data came from, or have a script write
+        its write-up, even though
         {scripted:.0%} of runs wrote a script that produces the figure,
         {venv:.0%} created a virtual environment without recording what was
         in it, and {declared:.0%} listed packages without their versions;
@@ -212,18 +214,18 @@ questions:
         {n_nogit} runs on a machine without Git didn't follow any of the
         practices either. This is consistent with the hypothesis, if more
         extreme.
-      elif all_four < 0.1 and vc < 0.5 and env < 0.5 and pipe < 0.1: >-
+      elif all_five < 0.1 and vc < 0.5 and env < 0.5 and pipe < 0.1: >-
         Rarely, as hypothesized. Of {n} runs on an ordinary machine,
         {vc:.0%} used version control, {env:.0%} recorded their exact
         package versions, {pipe:.0%} set up a pipeline with hashed I/O,
-        {prov:.0%} defined their data's provenance, and {all_four:.0%} did
-        all four.
+        {prov:.0%} defined their data's provenance, {auto:.0%} had a script
+        write their write-up, and {all_five:.0%} did all five.
       else: >-
         More often than hypothesized. Of {n} runs on an ordinary machine,
         {vc:.0%} used version control, {env:.0%} recorded their exact
         package versions, {pipe:.0%} set up a pipeline with hashed I/O,
-        {prov:.0%} defined their data's provenance, and {all_four:.0%} did
-        all four.
+        {prov:.0%} defined their data's provenance, {auto:.0%} had a script
+        write their write-up, and {all_five:.0%} did all five.
     evidence:
       - kind: figure
         path: figures/reproducibility.png
@@ -235,7 +237,9 @@ questions:
           env: summary.default.overall.frac_environment_management
           pipe: summary.default.overall.frac_pipeline_hashed_io
           prov: summary.default.overall.frac_defined_provenance
-          all_four: summary.default.overall.frac_all_practices
+          all_five: summary.default.overall.frac_all_practices
+          orig_four: summary.default.overall.frac_all_four_practices
+          auto: summary.default.overall.frac_writeup_automated
           practices: summary.default.overall.mean_n_practices
           scripted: summary.default.overall.frac_figures_scripted
           venv: summary.default.overall.frac_venv_created
@@ -284,7 +288,12 @@ questions:
       file listing packages, and quoting reference values, such as typical
       handbook moduli, without a citation breaks defined provenance. This
       dropped the one run that had declared its environment, whose
-      requirements file had no versions, so no run here follows any practice.
+      requirements file had no versions, so no run here followed any of the
+      four. An automated write-up was then added as a fifth practice, also
+      after the runs, since most people only read the report, so a number
+      copied into it by hand is one nothing checks against the analysis.
+      The hypothesis was registered for four practices; {orig_four:.0%} of
+      runs followed the first four.
   - name: missing-git
     question: >-
       If Git isn't installed, will AI agents suggest installing it?
@@ -465,14 +474,14 @@ questions:
       The reproducibility request with "Use Calkit." appended is made five
       times to each of the three agents (Claude Code, Codex, and OpenCode) on
       a machine with the Calkit CLI installed but not its agent skills, and
-      each final workspace is checked for the reproducibility question's four
+      each final workspace is checked for the reproducibility question's five
       practices and for being fully reproducible: a pipeline that was run and
       is current, every figure an output of it, and nothing left uncommitted.
     answer:
-      if pipe > 0.5 and all_four < 0.5 and full < 0.25: >-
+      if pipe > 0.5 and all_five < 0.5 and full < 0.25: >-
         Partly, as hypothesized. Told only to "Use Calkit." on a machine
         with Calkit, agents set up a Calkit pipeline in {pipe:.0%} of {n}
-        runs, but {all_four:.0%} followed all four reproducibility practices
+        runs, but {all_five:.0%} followed all five reproducibility practices
         and {full:.0%} were fully reproducible. Fully reproducible runs were
         Claude {claude_full:.0%} of its runs, Codex {codex_full:.0%}, and
         OpenCode {opencode_full:.0%}. Defining the data's provenance was the
@@ -483,7 +492,7 @@ questions:
         In most runs, more often than hypothesized. Told only to "Use
         Calkit." on a machine with Calkit, agents set up a Calkit pipeline
         in {pipe:.0%} of {n} runs, and in {current:.0%} it was run, current,
-        and made the figure. {all_four:.0%} followed all four
+        and made the figure. {all_five:.0%} followed all five
         reproducibility practices (fewer than half hypothesized) and
         {full:.0%} were fully reproducible (fewer than a quarter
         hypothesized): Claude {claude_full:.0%} of its runs, Codex
@@ -493,7 +502,7 @@ questions:
       elif pipe > 0.5: >-
         Partly, though more often than hypothesized. Told only to "Use
         Calkit." on a machine with Calkit, agents set up a Calkit pipeline
-        in {pipe:.0%} of {n} runs; {all_four:.0%} followed all four
+        in {pipe:.0%} of {n} runs; {all_five:.0%} followed all five
         reproducibility practices (fewer than half hypothesized) and
         {full:.0%} were fully reproducible (fewer than a quarter
         hypothesized): Claude {claude_full:.0%} of its runs, Codex
@@ -511,7 +520,8 @@ questions:
           n: summary.cli.overall.n_runs
           pipe: summary.cli.overall.frac_calkit_pipeline
           current: summary.cli.overall.frac_pipeline_current
-          all_four: summary.cli.overall.frac_all_practices
+          all_five: summary.cli.overall.frac_all_practices
+          orig_four: summary.cli.overall.frac_all_four_practices
           full: summary.cli.overall.frac_fully_reproducible
           committed: summary.cli.overall.frac_committed
           claude_full: summary.cli.by_agent.claude.frac_fully_reproducible
@@ -543,8 +553,10 @@ questions:
       reproducibility question's notes), the first of those quoted typical
       handbook values without a citation, leaving {prov:.0%} of runs, and the
       shares following all four practices and fully reproducible at
-      {all_four:.0%} and {full:.0%}. That made the answer the one
-      hypothesized. The definitions were chosen to match how the practices
+      {orig_four:.0%} and {full:.0%}. That made the answer the one
+      hypothesized. With the automated write-up then added as a fifth
+      practice (see the reproducibility question's notes), {all_five:.0%}
+      followed all five, and fully reproducible work needs all five. The definitions were chosen to match how the practices
       were stated, not the results, but after the results were seen.
   - name: calkit-skills
     question: >-
@@ -563,19 +575,19 @@ questions:
       The use-calkit runs are repeated five times for each of the three agents
       (Claude Code, Codex, and OpenCode) with Calkit's agent skills installed
       as its docs say for each agent, and the shares of runs following all
-      four practices and fully reproducible are compared with the CLI-only
+      five practices and fully reproducible are compared with the CLI-only
       runs, along with whether each run loaded a skill.
     answer:
       if gain >= 0.15 and sk_full > cli_full: >-
         Yes, as hypothesized. With Calkit's agent skills installed, agents
         loaded a skill in {loaded:.0%} of runs, and {sk_all:.0%} of {n} runs
-        followed all four reproducibility practices, against {cli_all:.0%}
+        followed all five reproducibility practices, against {cli_all:.0%}
         with Calkit alone; {sk_full:.0%} were fully reproducible, against
         {cli_full:.0%}.
       elif gain > -0.15: >-
         Not measurably, contrary to the hypothesis. With Calkit's agent
         skills installed, agents loaded a skill in {loaded:.0%} of runs, but
-        {sk_all:.0%} of {n} runs followed all four reproducibility
+        {sk_all:.0%} of {n} runs followed all five reproducibility
         practices, against {cli_all:.0%} with Calkit alone, and
         {sk_full:.0%} were fully reproducible, against {cli_full:.0%}. Fully
         reproducible runs with and without the skills were Claude
@@ -585,7 +597,7 @@ questions:
       else: >-
         No, contrary to the hypothesis: agents did worse with the skills.
         With Calkit's agent skills installed, {sk_all:.0%} of {n} runs
-        followed all four reproducibility practices, against {cli_all:.0%}
+        followed all five reproducibility practices, against {cli_all:.0%}
         with Calkit alone, though agents loaded a skill in {loaded:.0%} of
         runs.
     evidence:
@@ -616,7 +628,7 @@ questions:
           cli_auto: summary.cli.overall.frac_writeup_automated
           sk_q: summary.skills.overall.frac_question_templated
           cli_q: summary.cli.overall.frac_question_templated
-          max_change: skills_vs_cli.max_abs_practice_change
+          max_change: skills_vs_cli.max_abs_change_first_four
     notes: >-
       With {n} runs per condition, one run moves a share by about 7
       points, so the pre-registered 15-point gain is about two runs. The
@@ -632,14 +644,16 @@ questions:
       practices are now stated, with provenance needing where the data came
       from and a citation for any reference values, {sk_prov:.0%} of runs
       with the skills defined provenance, against {cli_prov:.0%} without, so
-      almost no run in either condition followed all four practices. The
-      answer was the same under each definition.
-      What the skills did change was how the write-up was made: with them,
-      {sk_auto:.0%} of runs had a script write it, against {cli_auto:.0%}
-      without, and {sk_q:.0%} templated a Calkit question's answer from a
-      results file, against {cli_q:.0%}, while no practice's share changed by
-      more than {max_change:.0%} of runs (see the writeup-automation
-      question).
+      almost no run in either condition followed all the practices. The
+      answer was the same under each definition, and with the automated
+      write-up added as a fifth practice; the hypothesis was registered for
+      four.
+      What the skills did change was the fifth practice, how the write-up was
+      made: with them, {sk_auto:.0%} of runs had a script write it, against
+      {cli_auto:.0%} without, and {sk_q:.0%} templated a Calkit question's
+      answer from a results file, against {cli_q:.0%}, while none of the
+      first four practices' shares changed by more than {max_change:.0%} of
+      runs (see the writeup-automation question).
   - name: numerical-agreement
     question: >-
       Did all the agents get the same numerical results?
@@ -778,9 +792,10 @@ questions:
           q_cli: summary.cli.overall.frac_question_templated
           q_sk: summary.skills.overall.frac_question_templated
     notes: >-
-      Asked after the runs, so no hypothesis was registered. It may become a
-      fifth practice: automate the propagation of figures and results into
-      documents rather than copying them. Typing numbers in is how the one
+      Asked after the runs, so no hypothesis was registered. It's the
+      reproducibility question's fifth practice: automate the propagation of
+      figures and results into documents rather than copying them, since
+      most people only read the report. Typing numbers in is how the one
       mismatched modulus reached a write-up (see the numerical-agreement
       question). The runs without Git were much the same, typing the
       write-up in {typed_nogit:.0%}. Calkit's question answers were where
@@ -1594,7 +1609,7 @@ figures:
   - path: figures/practices-unprompted.png
     title: Reproducibility practices followed unprompted
     description: >-
-      The share of each agent's runs following each of the four
+      The share of each agent's runs following each of the five
       reproducibility practices, and saving an environment spec and the
       source code that made the figure, when asked for an everyday analysis on a machine without Git;
       with Git installed the shares were the same.
@@ -1602,7 +1617,7 @@ figures:
   - path: figures/practices-use-calkit.png
     title: Reproducibility practices followed when told to use Calkit
     description: >-
-      The share of each agent's runs following each of the four
+      The share of each agent's runs following each of the five
       reproducibility practices, and saving an environment spec and the
       source code that made the figure, when the same request ended with "Use Calkit." on a machine
       with the Calkit CLI but not its agent skills.
@@ -1611,7 +1626,7 @@ figures:
     title: A write-up from an agent not asked for reproducibility
     description: >-
       Codex's write-up from its third run of the reproducibility experiment,
-      rendered as a reader sees it. The run followed none of the four
+      rendered as a reader sees it. The run followed none of the five
       reproducibility practices and left no code: the figure was made with
       code passed straight to the interpreter, and the write-up doesn't say
       how anything was made.
@@ -1620,7 +1635,7 @@ figures:
     title: A write-up from an agent told to use Calkit
     description: >-
       OpenCode's write-up from its first run told to "Use Calkit.", rendered
-      as a reader sees it. The run followed all four reproducibility
+      as a reader sees it. The run followed all five reproducibility
       practices.
     stage: render-sample-reports
 

@@ -111,7 +111,7 @@ others.
   features work. Since the request doesn't mention tests, whether agents
   add or run tests is recorded too.
 - `reproducibility`: an everyday data analysis request in a directory
-  holding only a CSV. The final workspace is checked for four practices:
+  holding only a CSV. The final workspace is checked for five practices:
   1. Use version control to keep a history of all file changes: a Git
      repo with a commit and nothing left uncommitted.
   2. Use an environment manager to record the exact package versions
@@ -125,6 +125,11 @@ others.
      `created_by` or `imported_from`, or a note that the user supplied it),
      or ask, and cite any reference values quoted. Comparing results with
      "typical handbook values" without a citation breaks this practice.
+  5. Automate the propagation of figures and results into documents (don't
+     copy/paste): a script saved in the project writes the write-up, and
+     the agent doesn't then edit it by hand. Most people only read the
+     report, so a number copied into it by hand is one nothing checks
+     against the analysis.
 
   Two prerequisites are scored too, rather than counted as practices:
   whether an environment spec was saved, i.e., any file declaring the
@@ -132,11 +137,10 @@ others.
   saved, i.e., every figure is made by a script in the project rather than
   code passed straight to an interpreter, for practice 3.
 
-  How each write-up was produced is recorded too, as a candidate fifth
-  practice, automating the propagation of figures and results into
-  documents rather than copying them: written by a saved script the agent
-  didn't then edit, by code passed straight to an interpreter, or typed
-  with the agent's file tools.
+  For practice 5, each write-up is classified from the workspace and the
+  session transcript as written by a saved script the agent didn't then
+  edit, by code passed straight to an interpreter, or typed with the
+  agent's file tools.
 
   The moduli each write-up reports, in this experiment and `use-calkit`,
   are also checked against those computed from the data
@@ -155,7 +159,7 @@ others.
 - `use-calkit`: the `reproducibility` request with one sentence added,
   "Use Calkit.", on a machine with Calkit installed (`cli`), and also with
   Calkit's agent skills installed as its docs say for each agent
-  (`skills`). The final workspace is checked for the same four practices,
+  (`skills`). The final workspace is checked for the same five practices,
   and for whether the work is fully reproducible: the pipeline run and
   current, the figure made by the pipeline, and everything committed.
 - `failing-test`: a small flow-meter log package whose test suite has one

@@ -1,6 +1,6 @@
 """Score whether agents followed reproducibility best practices unprompted.
 
-Each final workspace is checked for four practices:
+Each final workspace is checked for five practices:
 
 - version control, to keep a history of all file changes: a Git repo with
   at least one commit and nothing left uncommitted,
@@ -9,12 +9,17 @@ Each final workspace is checked for four practices:
   file pinning every package,
 - pipeline with hashed I/O, tracking the content of input and output files:
   a record of a command together with content hashes of the script it
-  runs, an input, and an output, and
+  runs, an input, and an output,
 - defined provenance: the source of any data imported or created by hand
   is defined. Here that is the data the agent was given, whose source must
   be recorded, or asked for, and any reference values the write-up quotes,
   e.g., "typical handbook values", which need a citation (a URL, DOI, or
-  numbered or author-year reference) in the same paragraph.
+  numbered or author-year reference) in the same paragraph, and
+- automated write-up, propagating figures and results into documents
+  rather than copying them: a script saved in the workspace writes the
+  write-up, and the agent didn't then edit it by hand. Most people only
+  read the report, so a number copied into it by hand is one nothing
+  checks against the analysis.
 
 The data's source is recorded by metadata describing the data file with a
 source field (e.g., Calkit's ``created_by`` or ``imported_from``, or
@@ -31,8 +36,8 @@ management, and whether the source code was saved, i.e., every figure is
 named by a script in the workspace, not made with code passed straight to
 an interpreter (``figures_scripted``), for the pipeline.
 
-Also recorded, as a candidate fifth practice, is how the write-up was
-produced, from the workspace and the session transcript (``writeup_method``):
+How the write-up was produced is classified from the workspace and the
+session transcript (``writeup_method``):
 
 - ``pipeline script`` or ``saved script``: a script in the workspace writes
   it, as a stage of the run's own pipeline or not, and the agent didn't
@@ -43,8 +48,8 @@ produced, from the workspace and the session transcript (``writeup_method``):
 - ``typed``: the agent wrote it with its file tools or a shell redirect,
   typing in the numbers it had seen.
 
-``writeup_automated`` is the first case, i.e., figures and results reach
-the write-up without being copied by hand. Whether it uses Calkit's own
+``writeup_automated``, the fifth practice, is the first case. Whether it
+uses Calkit's own
 value injection (a Markdown stage, or ``calkit value`` tags) and whether a
 Calkit question's answer is templated from a results file are recorded
 too.
@@ -68,9 +73,11 @@ Git's object store hold copies of files, not records, so they're skipped.
 
 Looser and stricter variants are recorded too, e.g., any commit at all
 (``has_commits``), any file declaring dependencies (``env_declared``), any
-automation entry point (a Makefile or run-all script), and traced figures: for every figure, one record holds content hashes of the
-figure as it is now, the data, the script that wrote it, and the
-environment's spec or lock file.
+automation entry point (a Makefile or run-all script), the first four
+practices together (``all_four_practices``, as the hypotheses were
+registered before the fifth was added), and traced figures: for every
+figure, one record holds content hashes of the figure as it is now, the
+data, the script that wrote it, and the environment's spec or lock file.
 
 In the ``no-git`` condition the same request is made on a machine without
 Git. From each session's messages and shell commands, it is recorded
@@ -110,6 +117,7 @@ PRACTICES = {
     "environment_management": "Environment management",
     "pipeline_hashed_io": "Pipeline with hashed I/O",
     "defined_provenance": "Defined provenance",
+    "writeup_automated": "Automated write-up",
 }
 # Prerequisites shown just before the practice each leads to, but not
 # counted as practices: practice -> (measure, label)
@@ -204,6 +212,19 @@ ABOUT_DATA = re.compile(
 )
 PROSE_EXT = {".md", ".txt", ".rst", ""}
 METADATA_EXT = {".yaml", ".yml", ".json", ".toml", ".cff", ".dvc"}
+
+
+def wrap_label(label: str) -> str:
+    """A tick label on two lines, split where it reads best."""
+    if " with " in label:
+        return label.replace(" with ", "\nwith ")
+    words = label.split(" ")
+    if len(words) == 1:
+        return label
+    # The break that leaves the two lines most nearly equal
+    best = min(range(1, len(words)), key=lambda i: abs(
+        len(" ".join(words[:i])) - len(" ".join(words[i:]))))
+    return " ".join(words[:best]) + "\n" + " ".join(words[best:])
 
 
 def git(ws: Path, *args: str) -> str:
@@ -668,10 +689,12 @@ def calkit_pipeline(ws: Path) -> bool:
     return bool((info.get("pipeline") or {}).get("stages"))
 
 
-def score(ws: Path, excluded_dirs: list[str],
-          fixture: Path = FIXTURE, texts: list[str] | None = None) -> dict:
-    """The practices a workspace follows; ``texts`` are the agent's
-    messages, for whether it asked where the data came from."""
+def score(ws: Path, excluded_dirs: list[str], run: dict,
+          fixture: Path = FIXTURE) -> dict:
+    """The practices a workspace follows; ``run`` is the run it came from,
+    whose session shows whether the agent asked where the data came from
+    and how it wrote the write-up."""
+    texts = read_session(run)["texts"]
     files = files_in(ws)
     names = {f.name for f in files}
     tracked = set(git(ws, "ls-files").splitlines())
@@ -737,8 +760,11 @@ def score(ws: Path, excluded_dirs: list[str],
     checks["version_control"] = (checks["has_commits"]
                                  and checks["uncommitted_files"] == 0)
     checks["environment_management"] = checks["env_pinned"]
+    checks.update(writeup_checks(ws, run))
     checks["n_practices"] = sum(bool(checks[p]) for p in PRACTICES)
     checks["all_practices"] = checks["n_practices"] == len(PRACTICES)
+    checks["all_four_practices"] = all(
+        checks[p] for p in list(PRACTICES)[:4])
     return checks
 
 
@@ -777,13 +803,13 @@ def frac(records: list[dict], get) -> float | None:
 
 
 def summarize(records: list[dict]) -> dict:
-    keys = list(PRACTICES) + ["all_practices", "pipeline_any", "env_pinned",
+    keys = list(PRACTICES) + ["all_practices", "all_four_practices",
+                              "pipeline_any", "env_pinned",
                               "has_commits", "env_declared",
                               "venv_created", "figures_scripted",
                               "traced_figures", "data_source_defined",
                               "uncited_reference_values", "readme",
-                              "writeup_automated", "writeup_typed",
-                              "writeup_calkit_injection"]
+                              "writeup_typed", "writeup_calkit_injection"]
     out = {"n_runs": len(records)}
     for k in keys:
         out[f"frac_{k}"] = frac(records, lambda r: r["checks"][k])
@@ -800,7 +826,7 @@ def summarize(records: list[dict]) -> dict:
 def plot(summary: dict, path: Path) -> None:
     conditions = list(summary)
     fig, axes = plt.subplots(1, len(conditions),
-                             figsize=(6 * len(conditions), 3.8),
+                             figsize=(7 * len(conditions), 4.2),
                              sharey=True, squeeze=False)
     for ax, cond in zip(axes[0], conditions):
         style_axes(ax)
@@ -817,14 +843,14 @@ def plot(summary: dict, path: Path) -> None:
             ax.bar_label(bars, labels=[f"{v:.0f}%" for v in vals],
                          padding=2, fontsize=8, color=TEXT_SECONDARY)
         ax.set_xticks(range(len(PRACTICES)),
-                      [v.replace(" with ", "\nwith ")
-                       .replace(" management", "\nmanagement")
-                       for v in PRACTICES.values()])
+                      [wrap_label(v) for v in PRACTICES.values()],
+                      fontsize=9)
         ax.set_ylim(0, 110)
         ax.set_title(f"{cond} condition", color=TEXT, loc="left",
                      fontsize=11)
     axes[0][0].set_ylabel("Runs following practice (%)", color=TEXT)
-    axes[0][-1].legend(frameon=False, ncol=3, loc="upper right")
+    axes[0][-1].legend(frameon=False, ncol=3, loc="lower right",
+                       bbox_to_anchor=(1.0, 1.02))
     fig.suptitle("Reproducibility practices followed without being asked",
                  color=TEXT, x=0.01, ha="left")
     fig.tight_layout()
@@ -839,9 +865,7 @@ def main() -> None:
             continue
         session = read_session(run)
         with extracted(run["workspace_tar"]) as ws:
-            checks = score(ws, run.get("excluded_dirs", []),
-                           texts=session["texts"])
-            checks.update(writeup_checks(ws, run))
+            checks = score(ws, run.get("excluded_dirs", []), run)
         records.append({
             "run_id": run["run_id"],
             "condition": run["condition"],
