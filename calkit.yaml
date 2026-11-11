@@ -1029,6 +1029,10 @@ environments:
     kind: uv-venv
     path: envs/pdf/requirements.txt
     python: "3.13"
+  render:
+    kind: uv-venv
+    path: envs/render/requirements.txt
+    python: "3.13"
 
 pipeline:
   stages:
@@ -1318,6 +1322,19 @@ pipeline:
           storage: git
         - path: figures/practices-use-calkit.png
           storage: git
+    render-sample-reports:
+      kind: python-script
+      script_path: scripts/render_sample_reports.py
+      environment: render
+      inputs:
+        - scripts/report.css
+        - runs/reproducibility/opencode/rep-1/workspaces/default/opencode.tar.gz
+        - runs/use-calkit/opencode/rep-1/workspaces/cli/opencode.tar.gz
+      outputs:
+        - path: figures/sample-report-unprompted.png
+          storage: git
+        - path: figures/sample-report-use-calkit.png
+          storage: git
     score-failing-test:
       kind: python-script
       script_path: scripts/score_failing_test.py
@@ -1404,6 +1421,20 @@ figures:
       reproducibility practices when the same request ended with "Use
       Calkit." on a machine with the Calkit CLI but not its agent skills.
     stage: plot-practices
+  - path: figures/sample-report-unprompted.png
+    title: A write-up from an agent not asked for reproducibility
+    description: >-
+      OpenCode's write-up from its first run of the reproducibility
+      experiment, rendered as a reader sees it. The run followed none of the
+      four reproducibility practices.
+    stage: render-sample-reports
+  - path: figures/sample-report-use-calkit.png
+    title: A write-up from an agent told to use Calkit
+    description: >-
+      OpenCode's write-up from its first run told to "Use Calkit.", rendered
+      as a reader sees it. The run followed all four reproducibility
+      practices.
+    stage: render-sample-reports
 
 datasets:
   - path: data/kohler2026
