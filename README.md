@@ -111,12 +111,24 @@ others.
   features work. Since the request doesn't mention tests, whether agents
   add or run tests is recorded too.
 - `reproducibility`: an everyday data analysis request in a directory
-  holding only a CSV. The final workspace is checked for version control,
-  environment management, a pipeline with hashed I/O, and defined
-  provenance (a record of where the CSV came from, or asking). In a
-  `no-git` condition the same request is made on a machine without Git,
-  and the sessions are checked for whether agents try Git, notice it is
-  missing, or suggest or attempt installing it.
+  holding only a CSV. The final workspace is checked for four practices:
+  1. Use version control to keep a history of all file changes: a Git
+     repo with a commit and nothing left uncommitted.
+  2. Use an environment manager to record the exact package versions
+     used: a lock file, a Calkit environment lock, or a requirements file
+     pinning every package.
+  3. Use a pipeline or build system that tracks the content (i.e., hashes)
+     of input and output files: a record, in any file or commit, of a
+     command with hashes of its script, an input, and an output.
+  4. Define the provenance (or source) of any data imported or created by
+     hand: here, record where the CSV came from (e.g., Calkit's
+     `created_by` or `imported_from`, or a note that the user supplied it),
+     or ask, and cite any reference values quoted. Comparing results with
+     "typical handbook values" without a citation breaks this practice.
+
+  In a `no-git` condition the same request is made on a machine without
+  Git, and the sessions are checked for whether agents try Git, notice it
+  is missing, or suggest or attempt installing it.
 - `multi-agent`: two implementation tasks, one whose parts are independent
   (five unrelated utility modules) and one whose parts depend on each
   other (a small SQL engine over CSV files), each done by a single agent

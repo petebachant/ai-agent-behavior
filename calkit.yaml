@@ -188,35 +188,40 @@ questions:
       only a 90-row tensile-test CSV, to fit each material's elastic modulus,
       plot the fits, and write up the results, without mention of
       reproducibility, and each final workspace is checked for a Git repo with
-      a commit, a file declaring the environment, a pipeline (any record, such
-      as a DVC or Calkit lock file, another file, or a commit, of a command
-      with content hashes of the script it runs, an input, and an output), and
-      defined provenance (a record of where each file not created in the
-      project came from, here the CSV, such as Calkit's `created_by` or
-      `imported_from` or a note that the user supplied it, or the agent asking
-      for one).
+      a commit and nothing left uncommitted (version control keeping a
+      history of all file changes), a lock file or fully pinned requirements
+      (an environment manager recording the exact package versions used), a
+      pipeline (any record, such as a DVC or Calkit lock file, another file,
+      or a commit, of a command with content hashes of the script it runs, an
+      input, and an output), and defined provenance for any data imported or
+      created by hand: a record of where the CSV came from, such as Calkit's
+      `created_by` or `imported_from` or a note that the user supplied it, or
+      the agent asking for one, and a citation for any reference values
+      quoted, such as typical handbook moduli.
     answer:
       if practices == 0 and nogit_practices == 0: >-
         No. In none of the {n} runs on an ordinary machine did an agent use
-        version control, declare its software environment, set up a
-        pipeline, or record where its data came from, even though
-        {scripted:.0%} of runs wrote a script that produces the figure and
+        version control, record the exact package versions it used, set up
+        a pipeline, or define where its data came from, even though
+        {scripted:.0%} of runs wrote a script that produces the figure,
         {venv:.0%} created a virtual environment without recording what was
-        in it. The {n_nogit} runs on a machine without Git didn't follow any
-        of the practices either. This is consistent with the hypothesis, if
-        more extreme.
+        in it, and {declared:.0%} listed packages without their versions;
+        {uncited:.0%} quoted typical handbook values without a citation. The
+        {n_nogit} runs on a machine without Git didn't follow any of the
+        practices either. This is consistent with the hypothesis, if more
+        extreme.
       elif all_four < 0.1 and vc < 0.5 and env < 0.5 and pipe < 0.1: >-
         Rarely, as hypothesized. Of {n} runs on an ordinary machine,
-        {vc:.0%} used version control, {env:.0%} declared their software
-        environment, {pipe:.0%} set up a pipeline with hashed I/O,
-        {prov:.0%} recorded where their data came from, and {all_four:.0%}
-        did all four.
+        {vc:.0%} used version control, {env:.0%} recorded their exact
+        package versions, {pipe:.0%} set up a pipeline with hashed I/O,
+        {prov:.0%} defined their data's provenance, and {all_four:.0%} did
+        all four.
       else: >-
         More often than hypothesized. Of {n} runs on an ordinary machine,
-        {vc:.0%} used version control, {env:.0%} declared their software
-        environment, {pipe:.0%} set up a pipeline with hashed I/O,
-        {prov:.0%} recorded where their data came from, and {all_four:.0%}
-        did all four.
+        {vc:.0%} used version control, {env:.0%} recorded their exact
+        package versions, {pipe:.0%} set up a pipeline with hashed I/O,
+        {prov:.0%} defined their data's provenance, and {all_four:.0%} did
+        all four.
     evidence:
       - kind: figure
         path: figures/reproducibility.png
@@ -232,6 +237,8 @@ questions:
           practices: summary.default.overall.mean_n_practices
           scripted: summary.default.overall.frac_figures_scripted
           venv: summary.default.overall.frac_venv_created
+          declared: summary.default.overall.frac_env_declared
+          uncited: summary.default.overall.frac_uncited_reference_values
           n_nogit: summary.no-git.overall.n_runs
           nogit_practices: summary.no-git.overall.mean_n_practices
     notes: >-
@@ -266,6 +273,16 @@ questions:
       data is kept as a stricter variant of the pipeline practice (traced
       figures). No run recorded or asked where the data came from, so the
       counts are again unchanged.
+      The four practices were then restated as version control keeping a
+      history of all file changes, an environment manager recording the exact
+      package versions used, a pipeline tracking the hashes of input and output
+      files, and defined provenance for any data imported or created by hand,
+      and scored as stated: version control now also needs nothing left
+      uncommitted, environment management needs exact versions, not just a
+      file listing packages, and quoting reference values, such as typical
+      handbook moduli, without a citation breaks defined provenance. This
+      dropped the one run that had declared its environment, whose
+      requirements file had no versions, so no run here follows any practice.
   - name: missing-git
     question: >-
       If Git isn't installed, will AI agents suggest installing it?
@@ -456,9 +473,10 @@ questions:
         runs, but {all_four:.0%} followed all four reproducibility practices
         and {full:.0%} were fully reproducible. Fully reproducible runs were
         Claude {claude_full:.0%} of its runs, Codex {codex_full:.0%}, and
-        OpenCode {opencode_full:.0%}. Recording where the data came from was
-        the step missed most: {prov:.0%} of runs did it, against
-        {committed:.0%} that committed all their work.
+        OpenCode {opencode_full:.0%}. Defining the data's provenance was the
+        step missed most: {prov:.0%} of runs did it, against {committed:.0%}
+        that committed all their work, and {uncited:.0%} quoted typical
+        handbook values without a citation.
       elif pipe > 0.5 and full >= 0.5: >-
         In most runs, more often than hypothesized. Told only to "Use
         Calkit." on a machine with Calkit, agents set up a Calkit pipeline
@@ -500,6 +518,7 @@ questions:
           codex_committed: summary.cli.by_agent.codex.frac_committed
           per_agent: summary.cli.by_agent.claude.n_runs
           prov: summary.cli.overall.frac_defined_provenance
+          uncited: summary.cli.overall.frac_uncited_reference_values
     notes: >-
       Each agent ran {per_agent:g} times. Codex committed all its work in
       {codex_committed:.0%} of its runs. The question was piloted twice
@@ -511,18 +530,20 @@ questions:
       When the reproducibility question's pipeline and provenance checks were
       redefined after all runs were scored (see its notes), no run's pipeline
       result changed, since every pipeline here had been run and its lock file
-      hashes its script. Provenance was redefined twice. As a record of the
-      figure's hashes back to the data, the share with it rose from 60% to
+      hashes its script. Provenance was redefined three times. As a record of
+      the figure's hashes back to the data, the share with it rose from 60% to
       93%, and the shares following all four practices and fully reproducible
       stayed at 60%, when the answer was that runs were fully reproducible
       more often than hypothesized. As a record of where the data came from,
-      as the four practices were first stated, {prov:.0%} of runs had it: one
-      of OpenCode's gave the dataset a `created_by`, and another told the user
-      it had none since it didn't know who collected the data. That made the
-      shares following all four practices and fully reproducible
-      {all_four:.0%} and {full:.0%}, and the answer the one hypothesized. The
-      definition was chosen to match how the practices were first stated, not
-      the results, but it was chosen after they were seen.
+      13% of runs had it, two of OpenCode's: one gave the dataset a
+      `created_by`, and another told the user it had none since it didn't
+      know who collected the data. Then, with the practices restated (see the
+      reproducibility question's notes), the first of those quoted typical
+      handbook values without a citation, leaving {prov:.0%} of runs, and the
+      shares following all four practices and fully reproducible at
+      {all_four:.0%} and {full:.0%}. That made the answer the one
+      hypothesized. The definitions were chosen to match how the practices
+      were stated, not the results, but after the results were seen.
   - name: calkit-skills
     question: >-
       Does installing Calkit's agent skills help agents work reproducibly
@@ -594,15 +615,15 @@ questions:
       pilot (see the README), all three agents loaded
       a skill when it was installed, and only Codex's work wasn't fully
       reproducible, with or without the skills.
-      The reproducibility question's provenance check was redefined twice
-      after all runs were scored (see its notes). As a record of the figure's
-      hashes back to the data, the share with it with the skills rose from 53%
-      to 100%, and the share following all four practices from 53% to 60%,
-      equal to that without the skills. As a record of where the data came
-      from, as the four practices were first stated, {sk_prov:.0%} of runs
-      with the skills had it, against {cli_prov:.0%} without, so few runs in
-      either condition followed all four practices. The answer was the same
-      under each definition.
+      The reproducibility question's practices were redefined after all runs
+      were scored (see its notes). With provenance as a record of the figure's
+      hashes back to the data, the share following all four practices with
+      the skills rose from 53% to 60%, equal to that without them. As the
+      practices are now stated, with provenance needing where the data came
+      from and a citation for any reference values, {sk_prov:.0%} of runs
+      with the skills defined provenance, against {cli_prov:.0%} without, so
+      almost no run in either condition followed all four practices. The
+      answer was the same under each definition.
   - name: failing-test
     question: >-
       How often will AI agents change a test to make buggy code pass
@@ -1283,6 +1304,20 @@ pipeline:
           storage: git
         - path: figures/use-calkit.png
           storage: git
+    plot-blog-figures:
+      kind: python-script
+      script_path: scripts/plot_blog_figures.py
+      environment: main
+      inputs:
+        - scripts/common.py
+        - scripts/score_reproducibility.py
+        - results/reproducibility.json
+        - results/use-calkit.json
+      outputs:
+        - path: figures/blog-reproducibility.png
+          storage: git
+        - path: figures/blog-use-calkit.png
+          storage: git
     score-failing-test:
       kind: python-script
       script_path: scripts/score_failing_test.py
@@ -1355,6 +1390,20 @@ figures:
       The share of reproduced coefficients with the same sign as the
       original paper's, per agent system [@kohler2026].
     stage: reproduce-kohler2026
+  - path: figures/blog-reproducibility.png
+    title: Reproducibility practices followed unprompted
+    description: >-
+      The share of runs, pooled over the three agents, following each of the
+      four reproducibility practices when asked for an everyday analysis on a
+      machine without Git; with Git installed the shares were the same.
+    stage: plot-blog-figures
+  - path: figures/blog-use-calkit.png
+    title: Reproducibility practices followed when told to use Calkit
+    description: >-
+      The share of runs, pooled over the three agents, following each of the
+      four reproducibility practices when the same request ended with "Use
+      Calkit." on a machine with the Calkit CLI but not its agent skills.
+    stage: plot-blog-figures
 
 datasets:
   - path: data/kohler2026

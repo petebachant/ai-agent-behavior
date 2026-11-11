@@ -2,20 +2,27 @@
 
 Each final workspace is checked for four practices:
 
-- version control: a Git repo with at least one commit,
-- environment management: a file declaring the software dependencies
-  (e.g., requirements.txt, pyproject.toml, environment.yml),
-- pipeline with hashed I/O: a record of a command together with content
-  hashes of the script it runs, an input, and an output, and
-- defined provenance: the source of every file not created in the project,
-  here the data the agent was given, is recorded, or the agent asked for
-  it. A record is metadata describing the data file with a source field
-  (e.g., Calkit's ``created_by`` or ``imported_from``, or ``source``), or a
-  sentence in a text file or commit message naming the data file with
-  where it came from (e.g., "provided by", "collected by", "Source:"). An
-  agent asks when its messages ask or note who collected the data, where
-  it came from, or for its ``created_by`` or ``imported_from``. Matching
-  text is saved with each run so the classification can be audited.
+- version control, to keep a history of all file changes: a Git repo with
+  at least one commit and nothing left uncommitted,
+- environment management, recording the exact package versions used: a
+  lock file (e.g., uv.lock, a Calkit environment lock) or a requirements
+  file pinning every package,
+- pipeline with hashed I/O, tracking the content of input and output files:
+  a record of a command together with content hashes of the script it
+  runs, an input, and an output, and
+- defined provenance: the source of any data imported or created by hand
+  is defined. Here that is the data the agent was given, whose source must
+  be recorded, or asked for, and any reference values the write-up quotes,
+  e.g., "typical handbook values", which need a citation (a URL, DOI, or
+  numbered or author-year reference) in the same paragraph.
+
+The data's source is recorded by metadata describing the data file with a
+source field (e.g., Calkit's ``created_by`` or ``imported_from``, or
+``source``), or a sentence in a text file or commit message naming the data
+file with where it came from (e.g., "provided by", "collected by",
+"Source:"). An agent asks when its messages ask or note who collected the
+data, where it came from, or for its ``created_by`` or ``imported_from``.
+Matching text is saved with each run so the classification can be audited.
 
 Hashes are recorded by any of:
 
@@ -34,9 +41,9 @@ The data is identified by content, as a file identical to one the project
 started with, so moving or renaming it doesn't matter. DVC's cache and
 Git's object store hold copies of files, not records, so they're skipped.
 
-Looser and stricter variants are recorded too, e.g., any automation entry
-point (a Makefile or run-all script), pinned dependency versions, and
-traced figures: for every figure, one record holds content hashes of the
+Looser and stricter variants are recorded too, e.g., any commit at all
+(``has_commits``), any file declaring dependencies (``env_declared``), any
+automation entry point (a Makefile or run-all script), and traced figures: for every figure, one record holds content hashes of the
 figure as it is now, the data, the script that wrote it, and the
 environment's spec or lock file.
 
@@ -146,6 +153,21 @@ ASKED_SOURCE = re.compile(
     r".*\b(source|provenance) of (the|this|these|your)\b",
     re.IGNORECASE,
 )
+REFERENCE_VALUES = re.compile(
+    r"\b(handbooks?|textbooks?|commonly (cited|quoted|reported))\b"
+    r"|\b(literature|published|reference|standard|nominal|accepted|"
+    r"tabulated) "
+    r"(values?|moduli|ranges?)\b"
+    r"|\btypical\b[^.;|]{0,30}\b(values?|moduli|ranges?)\b"
+    r"|\bexpected ranges?\b",
+    re.IGNORECASE,
+)
+CITATION = re.compile(
+    r"https?://|\bdoi:|\b10\.\d{4,9}/|\[@|\[\d+\]"
+    r"|\(\s*[A-Z][A-Za-z-]+( et al\.?)?,? (19|20)\d{2}[a-z]?\s*\)"
+    r"|\b[A-Z][A-Za-z-]+ et al\."
+)
+WRITEUP_EXT = {".md", ".txt", ".rst", ".html", ".tex"}
 ABOUT_DATA = re.compile(
     r"\b(data|dataset|measurements?|csv|specimens?)\b", re.IGNORECASE
 )
@@ -426,11 +448,24 @@ def data_source(ws: Path, files: list[Path], fixture: Path,
                 statements.append(f"commit: {s[:300]}")
     asked = [s[:300] for t in texts for s in sentences(t)
              if ASKED_SOURCE.search(s) and ABOUT_DATA.search(s)]
+    # Reference values quoted without a citation in the same paragraph
+    uncited = []
+    for f in files:
+        if (f.suffix.lower() not in WRITEUP_EXT
+                or set(f.parts) & (STORE_DIRS | {".calkit"})):
+            continue
+        text = (ws / f).read_text(errors="replace")
+        for para in re.split(r"\n\s*\n", text):
+            if CITATION.search(para):
+                continue
+            uncited += [f"{f}: {s[:300]}" for s in sentences(para)
+                        if REFERENCE_VALUES.search(s)]
     return {
         "data_files": sorted(paths),
         "data_source_records": records,
         "data_source_statements": list(dict.fromkeys(statements)),
         "data_source_asked": list(dict.fromkeys(asked)),
+        "uncited_reference_values": list(dict.fromkeys(uncited)),
     }
 
 
@@ -484,15 +519,16 @@ def score(ws: Path, excluded_dirs: list[str],
     checks = {
         "git_repo": (ws / ".git").is_dir(),
         "n_commits": n_commits,
-        "version_control": n_commits > 0,
+        "has_commits": n_commits > 0,
         "uncommitted_files": len(
             [ln for ln in git(ws, "status", "--porcelain").splitlines() if ln]
         ),
         "env_spec_files": sorted(str(f) for f in files
                                  if ENV_SPECS.match(f.name)),
-        "environment_management": any(ENV_SPECS.match(n) for n in names),
+        "env_declared": any(ENV_SPECS.match(n) for n in names),
         "env_pinned": bool(names & LOCK_FILES)
-        or any(pinned_requirements(ws / f) for f in req_files),
+        or any(pinned_requirements(ws / f) for f in req_files)
+        or any(f.parts[:2] == (".calkit", "env-locks") for f in files),
         "venv_created": any(Path(d.rstrip("/")).name in VENV_DIRS
                             for d in excluded_dirs),
         "automation_files": sorted(str(f) for f in files
@@ -514,12 +550,19 @@ def score(ws: Path, excluded_dirs: list[str],
         "figure_lineage_records": lineage,
         "traced_figures": bool(figures) and all(lineage.values()),
         **source,
-        "defined_provenance": bool(
+        "data_source_defined": bool(
             source["data_source_records"] or source["data_source_statements"]
             or source["data_source_asked"]
         ),
+        "defined_provenance": bool(
+            source["data_source_records"] or source["data_source_statements"]
+            or source["data_source_asked"]
+        ) and not source["uncited_reference_values"],
         "readme": any(n.lower().startswith("readme") for n in names),
     }
+    checks["version_control"] = (checks["has_commits"]
+                                 and checks["uncommitted_files"] == 0)
+    checks["environment_management"] = checks["env_pinned"]
     checks["n_practices"] = sum(bool(checks[p]) for p in PRACTICES)
     checks["all_practices"] = checks["n_practices"] == len(PRACTICES)
     return checks
@@ -561,8 +604,10 @@ def frac(records: list[dict], get) -> float | None:
 
 def summarize(records: list[dict]) -> dict:
     keys = list(PRACTICES) + ["all_practices", "pipeline_any", "env_pinned",
+                              "has_commits", "env_declared",
                               "venv_created", "figures_scripted",
-                              "traced_figures", "readme"]
+                              "traced_figures", "data_source_defined",
+                              "uncited_reference_values", "readme"]
     out = {"n_runs": len(records)}
     for k in keys:
         out[f"frac_{k}"] = frac(records, lambda r: r["checks"][k])

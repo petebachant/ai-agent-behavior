@@ -151,7 +151,8 @@ def summarize(records: list[dict]) -> dict:
     keys = list(METRICS) + [
         "calkit_project", "calkit_pipeline", "pipeline_run",
         "pipeline_current", "figures_from_pipeline", "committed",
-        "ran_calkit", "loaded_skill", "timed_out",
+        "ran_calkit", "loaded_skill", "timed_out", "has_commits",
+        "env_declared", "data_source_defined", "uncited_reference_values",
     ]
     out = {"n_runs": len(records)}
     out.update({f"frac_{k}": frac(records, k) for k in keys})
