@@ -229,7 +229,8 @@ def main() -> None:
             failed.append(run["run_id"])
             continue
         with extracted(run["workspace_tar"]) as ws:
-            checks = score(ws, run.get("excluded_dirs", []))
+            checks = score(ws, run.get("excluded_dirs", []),
+                           texts=read_session(run)["texts"])
             checks.update(pipeline_checks(ws, checks["figures"]))
             checks["calkit_project"] = (ws / "calkit.yaml").exists()
             checks["calkit_pipeline"] = calkit_pipeline(ws)

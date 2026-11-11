@@ -191,13 +191,15 @@ questions:
       a commit, a file declaring the environment, a pipeline (any record, such
       as a DVC or Calkit lock file, another file, or a commit, of a command
       with content hashes of the script it runs, an input, and an output), and
-      defined provenance (for every figure, one record with content hashes of
-      the figure, the data, the script that wrote it, and the environment).
+      defined provenance (a record of where each file not created in the
+      project came from, here the CSV, such as Calkit's `created_by` or
+      `imported_from` or a note that the user supplied it, or the agent asking
+      for one).
     answer:
       if practices == 0 and nogit_practices == 0: >-
         No. In none of the {n} runs on an ordinary machine did an agent use
         version control, declare its software environment, set up a
-        pipeline, or record its figure's provenance, even though
+        pipeline, or record where its data came from, even though
         {scripted:.0%} of runs wrote a script that produces the figure and
         {venv:.0%} created a virtual environment without recording what was
         in it. The {n_nogit} runs on a machine without Git didn't follow any
@@ -207,13 +209,13 @@ questions:
         Rarely, as hypothesized. Of {n} runs on an ordinary machine,
         {vc:.0%} used version control, {env:.0%} declared their software
         environment, {pipe:.0%} set up a pipeline with hashed I/O,
-        {prov:.0%} recorded their figure's provenance, and {all_four:.0%}
+        {prov:.0%} recorded where their data came from, and {all_four:.0%}
         did all four.
       else: >-
         More often than hypothesized. Of {n} runs on an ordinary machine,
         {vc:.0%} used version control, {env:.0%} declared their software
         environment, {pipe:.0%} set up a pipeline with hashed I/O,
-        {prov:.0%} recorded their figure's provenance, and {all_four:.0%}
+        {prov:.0%} recorded where their data came from, and {all_four:.0%}
         did all four.
     evidence:
       - kind: figure
@@ -257,6 +259,13 @@ questions:
       the environment, where before it needed only the figure's script
       committed to Git. No run here left any record of hashes, so the counts
       are unchanged.
+      Provenance was then redefined again, as the four practices were first
+      stated: the source of every file not created in the project, which here
+      is the CSV. An agent can't know who collected it, but can record that the
+      user supplied it, or ask. The record of the figure's hashes back to the
+      data is kept as a stricter variant of the pipeline practice (traced
+      figures). No run recorded or asked where the data came from, so the
+      counts are again unchanged.
   - name: missing-git
     question: >-
       If Git isn't installed, will AI agents suggest installing it?
@@ -447,7 +456,9 @@ questions:
         runs, but {all_four:.0%} followed all four reproducibility practices
         and {full:.0%} were fully reproducible. Fully reproducible runs were
         Claude {claude_full:.0%} of its runs, Codex {codex_full:.0%}, and
-        OpenCode {opencode_full:.0%}.
+        OpenCode {opencode_full:.0%}. Recording where the data came from was
+        the step missed most: {prov:.0%} of runs did it, against
+        {committed:.0%} that committed all their work.
       elif pipe > 0.5 and full >= 0.5: >-
         In most runs, more often than hypothesized. Told only to "Use
         Calkit." on a machine with Calkit, agents set up a Calkit pipeline
@@ -488,10 +499,10 @@ questions:
           opencode_full: summary.cli.by_agent.opencode.frac_fully_reproducible
           codex_committed: summary.cli.by_agent.codex.frac_committed
           per_agent: summary.cli.by_agent.claude.n_runs
+          prov: summary.cli.overall.frac_defined_provenance
     notes: >-
-      Each agent ran {per_agent:g} times. Every run that wasn't fully
-      reproducible had left work uncommitted; Codex committed all its work
-      in {codex_committed:.0%} of its runs. The question was piloted twice
+      Each agent ran {per_agent:g} times. Codex committed all its work in
+      {codex_committed:.0%} of its runs. The question was piloted twice
       before the recorded runs (see the README): the first pilot showed the
       sandbox kept DVC from writing its machine-wide cache, which `calkit
       init` needs, so that directory was opened to writes; in the second,
@@ -500,12 +511,18 @@ questions:
       When the reproducibility question's pipeline and provenance checks were
       redefined after all runs were scored (see its notes), no run's pipeline
       result changed, since every pipeline here had been run and its lock file
-      hashes its script, and the share with defined provenance rose from 60%
-      to 93%, since the lock file records the figure, data, script, and
-      environment hashes whether or not the script was committed; the shares
-      following all four practices and fully reproducible are unchanged. The
-      one run without it, Codex's in repetition 2, ran its script with no
-      environment declared.
+      hashes its script. Provenance was redefined twice. As a record of the
+      figure's hashes back to the data, the share with it rose from 60% to
+      93%, and the shares following all four practices and fully reproducible
+      stayed at 60%, when the answer was that runs were fully reproducible
+      more often than hypothesized. As a record of where the data came from,
+      as the four practices were first stated, {prov:.0%} of runs had it: one
+      of OpenCode's gave the dataset a `created_by`, and another told the user
+      it had none since it didn't know who collected the data. That made the
+      shares following all four practices and fully reproducible
+      {all_four:.0%} and {full:.0%}, and the answer the one hypothesized. The
+      definition was chosen to match how the practices were first stated, not
+      the results, but it was chosen after they were seen.
   - name: calkit-skills
     question: >-
       Does installing Calkit's agent skills help agents work reproducibly
@@ -567,22 +584,25 @@ questions:
           codex_cli: summary.cli.by_agent.codex.frac_fully_reproducible
           opencode_sk: summary.skills.by_agent.opencode.frac_fully_reproducible
           opencode_cli: summary.cli.by_agent.opencode.frac_fully_reproducible
+          sk_prov: summary.skills.overall.frac_defined_provenance
+          cli_prov: summary.cli.overall.frac_defined_provenance
     notes: >-
       With {n} runs per condition, one run moves a share by about 7
       points, so the pre-registered 15-point gain is about two runs. The
       threshold for "did worse" (15 points lower) mirrors the
-      pre-registered gain and was set after the results were seen. Every
-      run in both conditions that wasn't fully reproducible had left work
-      uncommitted (see the use-calkit question), and the skills didn't
-      change that. In the pilot (see the README), all three agents loaded
+      pre-registered gain and was set after the results were seen. In the
+      pilot (see the README), all three agents loaded
       a skill when it was installed, and only Codex's work wasn't fully
       reproducible, with or without the skills.
-      When the reproducibility question's provenance check was redefined after
-      all runs were scored (see its notes), the share with defined provenance
-      with the skills rose from 53% to 100%, and the share following all four
-      practices from 53% to 60%, now equal to that without the skills where it
-      had been 7 points lower; the shares fully reproducible are unchanged,
-      and so is the answer.
+      The reproducibility question's provenance check was redefined twice
+      after all runs were scored (see its notes). As a record of the figure's
+      hashes back to the data, the share with it with the skills rose from 53%
+      to 100%, and the share following all four practices from 53% to 60%,
+      equal to that without the skills. As a record of where the data came
+      from, as the four practices were first stated, {sk_prov:.0%} of runs
+      with the skills had it, against {cli_prov:.0%} without, so few runs in
+      either condition followed all four practices. The answer was the same
+      under each definition.
   - name: failing-test
     question: >-
       How often will AI agents change a test to make buggy code pass

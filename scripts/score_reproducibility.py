@@ -7,11 +7,17 @@ Each final workspace is checked for four practices:
   (e.g., requirements.txt, pyproject.toml, environment.yml),
 - pipeline with hashed I/O: a record of a command together with content
   hashes of the script it runs, an input, and an output, and
-- defined provenance: for every figure, one record holds content hashes of
-  the figure as it is now, the data, the script that wrote it, and the
-  environment's spec or lock file.
+- defined provenance: the source of every file not created in the project,
+  here the data the agent was given, is recorded, or the agent asked for
+  it. A record is metadata describing the data file with a source field
+  (e.g., Calkit's ``created_by`` or ``imported_from``, or ``source``), or a
+  sentence in a text file or commit message naming the data file with
+  where it came from (e.g., "provided by", "collected by", "Source:"). An
+  agent asks when its messages ask or note who collected the data, where
+  it came from, or for its ``created_by`` or ``imported_from``. Matching
+  text is saved with each run so the classification can be audited.
 
-A record can be any of:
+Hashes are recorded by any of:
 
 - a DVC lock file (``dvc.lock``, which Calkit also writes), whose stages
   record a command and the hashes of its dependencies and outputs; for
@@ -28,8 +34,11 @@ The data is identified by content, as a file identical to one the project
 started with, so moving or renaming it doesn't matter. DVC's cache and
 Git's object store hold copies of files, not records, so they're skipped.
 
-Looser variants are recorded too, e.g., any automation entry point (a
-Makefile or run-all script) and pinned dependency versions.
+Looser and stricter variants are recorded too, e.g., any automation entry
+point (a Makefile or run-all script), pinned dependency versions, and
+traced figures: for every figure, one record holds content hashes of the
+figure as it is now, the data, the script that wrote it, and the
+environment's spec or lock file.
 
 In the ``no-git`` condition the same request is made on a machine without
 Git. From each session's messages and shell commands, it is recorded
@@ -39,8 +48,10 @@ classification can be audited.
 """
 
 import hashlib
+import json
 import re
 import subprocess
+import tomllib
 from collections import defaultdict
 from pathlib import Path
 
@@ -103,6 +114,43 @@ GIT_INSTALL_SUGGESTION = re.compile(
     re.IGNORECASE,
 )
 GIT_MENTION = re.compile(r"\bgit\b(?![-\w])", re.IGNORECASE)
+# Fields that say where a file came from, in metadata that describes it
+SOURCE_KEYS = {"created_by", "imported_from", "source", "origin",
+               "provenance", "collected_by", "provided_by", "creator",
+               "author", "authors"}
+PATH_KEYS = {"path", "file", "filename", "name", "src", "out"}
+SOURCE_PHRASE = re.compile(
+    r"\b(provided|supplied|given|shared|sent|collected|measured|recorded|"
+    r"acquired|obtained|downloaded|received|exported|taken)\s+(by|from)\b"
+    r"|\bcourtesy of\b",
+    re.IGNORECASE,
+)
+# A field naming the source, which can sit beside the file it's about, e.g.,
+# in a list, rather than in the same sentence
+SOURCE_FIELD = re.compile(r"\b(source|origin|provenance)\s*:", re.IGNORECASE)
+DATA_WORD = re.compile(
+    r"\b(raw|input|source|original|test|tensile)\s+data\b|\bdataset\b",
+    re.IGNORECASE,
+)
+ASKED_SOURCE = re.compile(
+    r"\b(created_by|imported_from)\b"
+    r"|\bwho\b[^.?!\n]{0,60}\b(collected|measured|recorded|ran|performed|"
+    r"acquired|provided|supplied|made)\b"
+    r"|\bwhere\b[^.?!\n]{0,60}\b(came|come|comes|obtained|collected|"
+    r"measured)\b"
+    r"|\b(source|provenance) of (the|this|these|your)\b.*\b(unknown|not "
+    r"(known|recorded|stated)|(don't|didn't|do not|did not) know|let me "
+    r"know|tell me|could you|can you|please|record|document)\b"
+    r"|\b(unknown|not (known|recorded|stated)|(don't|didn't|do not|did not) "
+    r"know|let me know|tell me|could you|can you|please|record|document)\b"
+    r".*\b(source|provenance) of (the|this|these|your)\b",
+    re.IGNORECASE,
+)
+ABOUT_DATA = re.compile(
+    r"\b(data|dataset|measurements?|csv|specimens?)\b", re.IGNORECASE
+)
+PROSE_EXT = {".md", ".txt", ".rst", ""}
+METADATA_EXT = {".yaml", ".yml", ".json", ".toml", ".cff", ".dvc"}
 
 
 def git(ws: Path, *args: str) -> str:
@@ -288,7 +336,7 @@ def pipeline_records(records: list[dict]) -> list[str]:
                    for _, script, inputs, outputs in r["commands"])]
 
 
-def provenance_records(records: list[dict], fig: Path,
+def lineage_records(records: list[dict], fig: Path,
                        sources: list[str]) -> list[str]:
     """Records holding hashes of the figure as it is now, the data, the
     script that wrote it, and the environment."""
@@ -302,6 +350,88 @@ def provenance_records(records: list[dict], fig: Path,
                 and any(is_env_file(p) for p in r["named"])):
             found.append(r["source"])
     return found
+
+
+def sentences(text: str) -> list[str]:
+    parts = re.split(r"(?<=[.!?])\s+|\n\s*\n|\n\s*[-*|] ", text)
+    return [" ".join(s.split()) for s in parts if s.strip()]
+
+
+def data_source(ws: Path, files: list[Path], fixture: Path,
+                texts: list[str]) -> dict:
+    """Where the workspace records the data's source, and where the agent
+    asked for it, as the matching text."""
+    fixture_files = [p for p in fixture.rglob("*") if p.is_file()]
+    fixture_md5s = {md5(p) for p in fixture_files}
+    data = [f for f in files if (ws / f).stat().st_size < RECORD_MAX_BYTES
+            and md5(ws / f) in fixture_md5s]
+    names = {f.name for f in data} | {p.name for p in fixture_files}
+    paths = {str(f) for f in data}
+
+    def is_data(value) -> bool:
+        return isinstance(value, str) and (
+            value in paths or value in names
+            or any(value.endswith("/" + n) for n in names))
+
+    def describes_data(node) -> list[str]:
+        # Dicts that name the data under a path key, with a source field
+        found = []
+        if isinstance(node, dict):
+            if any(is_data(node.get(k)) for k in PATH_KEYS):
+                keys = [str(k) for k, v in node.items()
+                        if str(k).lower() in SOURCE_KEYS and v]
+                keys += [str(k) for k in ("desc", "description", "meta")
+                         if SOURCE_PHRASE.search(str(node.get(k) or ""))
+                         or SOURCE_FIELD.search(str(node.get(k) or ""))]
+                found += keys
+            for v in node.values():
+                found += describes_data(v)
+        elif isinstance(node, list):
+            for v in node:
+                found += describes_data(v)
+        return found
+
+    def names_data(sentence: str) -> bool:
+        return (any(n in sentence for n in names)
+                or bool(DATA_WORD.search(sentence)))
+
+    records, statements = [], []
+    for f in files:
+        if set(f.parts) & STORE_DIRS or f.name in LOCK_FILES | {"dvc.lock"}:
+            continue
+        path = ws / f
+        if path.stat().st_size > RECORD_MAX_BYTES:
+            continue
+        suffix = f.suffix.lower()
+        if suffix in METADATA_EXT:
+            text = path.read_text(errors="replace")
+            try:
+                node = (json.loads(text) if suffix == ".json"
+                        else tomllib.loads(text) if suffix == ".toml"
+                        else yaml.safe_load(text))
+            except Exception:
+                continue
+            records += [f"{f}: {k}" for k in describes_data(node)]
+        elif suffix in PROSE_EXT and not ENV_SPECS.match(f.name):
+            text = path.read_text(errors="replace")
+            for para in re.split(r"\n\s*\n", text):
+                if SOURCE_FIELD.search(para) and names_data(para):
+                    statements.append(f"{f}: {' '.join(para.split())[:300]}")
+            for s in sentences(text):
+                if SOURCE_PHRASE.search(s) and names_data(s):
+                    statements.append(f"{f}: {s[:300]}")
+    for msg in git(ws, "log", "--all", "--format=%B%x00").split("\0"):
+        for s in sentences(msg):
+            if SOURCE_PHRASE.search(s) and names_data(s):
+                statements.append(f"commit: {s[:300]}")
+    asked = [s[:300] for t in texts for s in sentences(t)
+             if ASKED_SOURCE.search(s) and ABOUT_DATA.search(s)]
+    return {
+        "data_files": sorted(paths),
+        "data_source_records": records,
+        "data_source_statements": list(dict.fromkeys(statements)),
+        "data_source_asked": list(dict.fromkeys(asked)),
+    }
 
 
 def files_in(ws: Path) -> list[Path]:
@@ -330,7 +460,9 @@ def calkit_pipeline(ws: Path) -> bool:
 
 
 def score(ws: Path, excluded_dirs: list[str],
-          fixture: Path = FIXTURE) -> dict:
+          fixture: Path = FIXTURE, texts: list[str] | None = None) -> dict:
+    """The practices a workspace follows; ``texts`` are the agent's
+    messages, for whether it asked where the data came from."""
     files = files_in(ws)
     names = {f.name for f in files}
     tracked = set(git(ws, "ls-files").splitlines())
@@ -345,9 +477,9 @@ def score(ws: Path, excluded_dirs: list[str],
     figure_sources = {str(f): producing_scripts(f) for f in figures}
     records = hash_records(ws, files, fixture)
     pipelines = pipeline_records(records)
-    provenance = {str(f): provenance_records(records, f,
-                                             figure_sources[str(f)])
-                  for f in figures}
+    lineage = {str(f): lineage_records(records, f, figure_sources[str(f)])
+               for f in figures}
+    source = data_source(ws, files, fixture, texts or [])
     req_files = [f for f in files if re.match(r"requirements.*\.txt$", f.name)]
     checks = {
         "git_repo": (ws / ".git").is_dir(),
@@ -379,8 +511,13 @@ def score(ws: Path, excluded_dirs: list[str],
             any(s in tracked for s in figure_sources[str(f)])
             for f in figures
         ),
-        "provenance_records": provenance,
-        "defined_provenance": bool(figures) and all(provenance.values()),
+        "figure_lineage_records": lineage,
+        "traced_figures": bool(figures) and all(lineage.values()),
+        **source,
+        "defined_provenance": bool(
+            source["data_source_records"] or source["data_source_statements"]
+            or source["data_source_asked"]
+        ),
         "readme": any(n.lower().startswith("readme") for n in names),
     }
     checks["n_practices"] = sum(bool(checks[p]) for p in PRACTICES)
@@ -424,7 +561,8 @@ def frac(records: list[dict], get) -> float | None:
 
 def summarize(records: list[dict]) -> dict:
     keys = list(PRACTICES) + ["all_practices", "pipeline_any", "env_pinned",
-                              "venv_created", "figures_scripted", "readme"]
+                              "venv_created", "figures_scripted",
+                              "traced_figures", "readme"]
     out = {"n_runs": len(records)}
     for k in keys:
         out[f"frac_{k}"] = frac(records, lambda r: r["checks"][k])
@@ -478,8 +616,10 @@ def main() -> None:
         if not run["ok"]:
             failed.append(run["run_id"])
             continue
+        session = read_session(run)
         with extracted(run["workspace_tar"]) as ws:
-            checks = score(ws, run.get("excluded_dirs", []))
+            checks = score(ws, run.get("excluded_dirs", []),
+                           texts=session["texts"])
         records.append({
             "run_id": run["run_id"],
             "condition": run["condition"],
@@ -487,7 +627,7 @@ def main() -> None:
             "model": run["model"],
             "rep": run["rep"],
             "checks": checks,
-            "git": git_behavior(read_session(run)),
+            "git": git_behavior(session),
         })
     summary = {}
     for cond in sorted({r["condition"] for r in records}):

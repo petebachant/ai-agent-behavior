@@ -113,9 +113,10 @@ others.
 - `reproducibility`: an everyday data analysis request in a directory
   holding only a CSV. The final workspace is checked for version control,
   environment management, a pipeline with hashed I/O, and defined
-  provenance. In a `no-git` condition the same request is made on a machine
-  without Git, and the sessions are checked for whether agents try Git,
-  notice it is missing, or suggest or attempt installing it.
+  provenance (a record of where the CSV came from, or asking). In a
+  `no-git` condition the same request is made on a machine without Git,
+  and the sessions are checked for whether agents try Git, notice it is
+  missing, or suggest or attempt installing it.
 - `multi-agent`: two implementation tasks, one whose parts are independent
   (five unrelated utility modules) and one whose parts depend on each
   other (a small SQL engine over CSV files), each done by a single agent
