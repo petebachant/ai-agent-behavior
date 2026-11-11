@@ -15,11 +15,12 @@ Each final workspace is checked for five practices:
   be recorded, or asked for, and any reference values the write-up quotes,
   e.g., "typical handbook values", which need a citation (a URL, DOI, or
   numbered or author-year reference) in the same paragraph, and
-- automated write-up, propagating figures and results into documents
-  rather than copying them: a script saved in the workspace writes the
-  write-up, and the agent didn't then edit it by hand. Most people only
-  read the report, so a number copied into it by hand is one nothing
-  checks against the analysis.
+- automated assembly, building composite artifacts, such as papers and
+  reports, from their components (figures, tables, results) automatically
+  rather than copying them in by hand: here, a script saved in the
+  workspace writes the write-up, and the agent didn't then edit it by hand.
+  Most people only read the report, so a number copied into it by hand is
+  one nothing checks against the analysis.
 
 The data's source is recorded by metadata describing the data file with a
 source field (e.g., Calkit's ``created_by`` or ``imported_from``, or
@@ -117,7 +118,7 @@ PRACTICES = {
     "environment_management": "Environment management",
     "pipeline_hashed_io": "Pipeline with hashed I/O",
     "defined_provenance": "Defined provenance",
-    "writeup_automated": "Automated write-up",
+    "writeup_automated": "Automated assembly",
 }
 # Prerequisites shown just before the practice each leads to, but not
 # counted as practices: practice -> (measure, label)

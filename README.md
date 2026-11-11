@@ -125,11 +125,12 @@ others.
      `created_by` or `imported_from`, or a note that the user supplied it),
      or ask, and cite any reference values quoted. Comparing results with
      "typical handbook values" without a citation breaks this practice.
-  5. Automate the propagation of figures and results into documents (don't
-     copy/paste): a script saved in the project writes the write-up, and
-     the agent doesn't then edit it by hand. Most people only read the
-     report, so a number copied into it by hand is one nothing checks
-     against the analysis.
+  5. Use automated assembly: build composite artifacts, such as papers and
+     reports, from their components (figures, tables, results)
+     automatically, rather than copying them in by hand: here, a script
+     saved in the project writes the write-up, and the agent doesn't then
+     edit it by hand. Most people only read the report, so a number copied
+     into it by hand is one nothing checks against the analysis.
 
   Two prerequisites are scored too, rather than counted as practices:
   whether an environment spec was saved, i.e., any file declaring the

@@ -3,7 +3,7 @@
 Each final workspace is checked for the same five practices as in the
 reproducibility experiment (see ``score_reproducibility.py``): version
 control, environment management, a pipeline with hashed I/O, defined
-provenance, and an automated write-up. A run is also checked for whether
+provenance, and automated assembly. A run is also checked for whether
 its work is fully reproducible, which needs, besides all five practices:
 
 - pipeline current: the pipeline was run (there is a ``dvc.lock``) and the
