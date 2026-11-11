@@ -24,10 +24,12 @@ file with where it came from (e.g., "provided by", "collected by",
 data, where it came from, or for its ``created_by`` or ``imported_from``.
 Matching text is saved with each run so the classification can be audited.
 
-Also scored, as a prerequisite of the pipeline practice rather than a
-practice of its own, is whether the source code was saved: every figure is
-named by a script in the workspace (``figures_scripted``), not made with
-code passed straight to an interpreter.
+Two prerequisites are scored too, each shown beside its practice rather
+than counted as one: whether an environment spec was saved, i.e., any file
+declaring the packages, pinned or not (``env_declared``), for environment
+management, and whether the source code was saved, i.e., every figure is
+named by a script in the workspace, not made with code passed straight to
+an interpreter (``figures_scripted``), for the pipeline.
 
 Hashes are recorded by any of:
 
@@ -91,8 +93,12 @@ PRACTICES = {
     "pipeline_hashed_io": "Pipeline with hashed I/O",
     "defined_provenance": "Defined provenance",
 }
-# A prerequisite of a pipeline, shown beside the practices but not one
-SOURCE_CODE = {"figures_scripted": "Source code saved"}
+# Prerequisites shown just before the practice each leads to, but not
+# counted as practices: practice -> (measure, label)
+PREREQUISITES = {
+    "environment_management": ("env_declared", "Environment spec saved"),
+    "pipeline_hashed_io": ("figures_scripted", "Source code saved"),
+}
 ENV_SPECS = re.compile(
     r"^(requirements.*\.txt|pyproject\.toml|environment\.ya?ml|Pipfile|"
     r"pixi\.toml|setup\.py|setup\.cfg|conda\.ya?ml|renv\.lock|Project\.toml)$"

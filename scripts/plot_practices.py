@@ -1,7 +1,7 @@
 """Plot the share of each agent's runs following the four practices.
 
-Whether the source code was saved, a prerequisite of a pipeline, is shown
-just before the pipeline practice.
+Each prerequisite, an environment spec saved and the source code saved,
+is shown just before the practice it leads to.
 
 One figure for the reproducibility experiment's no-git condition, where
 agents weren't told about reproducibility (the condition with Git
@@ -22,7 +22,7 @@ from common import (
     save_fig,
     style_axes,
 )
-from score_reproducibility import PRACTICES, SOURCE_CODE
+from score_reproducibility import PRACTICES, PREREQUISITES
 
 AGENT_NAMES = {"claude": "Claude Code", "codex": "Codex",
                "opencode": "OpenCode"}
@@ -33,11 +33,12 @@ FIGURES = [
 
 
 def measures() -> dict[str, str]:
-    """The practices, with source code saved just before the pipeline."""
+    """The practices, each preceded by its prerequisite, if any."""
     out = {}
     for key, label in PRACTICES.items():
-        if key == "pipeline_hashed_io":
-            out.update(SOURCE_CODE)
+        if key in PREREQUISITES:
+            measure, prereq_label = PREREQUISITES[key]
+            out[measure] = prereq_label
         out[key] = label
     return out
 
@@ -45,13 +46,13 @@ def measures() -> dict[str, str]:
 def plot(by_agent: dict, path) -> None:
     shown = measures()
     labels = [v.replace(" ", "\n", 1) if v.count(" ") == 1
-              else v.replace(" with ", "\nwith ").replace(" code ",
-                                                           " code\n")
+              else v.replace(" with ", "\nwith ").replace(" code ", " code\n")
+              .replace(" spec ", "\nspec ")
               for v in shown.values()]
     # Fixed agent order, so each keeps its color across figures
     agents = [a for a in AGENT_STYLE if a in by_agent]
     width = 0.8 / len(agents)
-    fig, ax = plt.subplots(figsize=(8.4, 3.8))
+    fig, ax = plt.subplots(figsize=(9.6, 3.8))
     style_axes(ax)
     for i, agent in enumerate(agents):
         x = [j + (i - (len(agents) - 1) / 2) * width
