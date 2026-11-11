@@ -132,6 +132,10 @@ others.
   saved, i.e., every figure is made by a script in the project rather than
   code passed straight to an interpreter, for practice 3.
 
+  The moduli each write-up reports, in this experiment and `use-calkit`,
+  are also checked against those computed from the data
+  (`score-numerical-agreement`).
+
   In a `no-git` condition the same request is made on a machine without
   Git, and the sessions are checked for whether agents try Git, notice it
   is missing, or suggest or attempt installing it.
