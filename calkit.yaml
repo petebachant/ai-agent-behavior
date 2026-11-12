@@ -1137,51 +1137,6 @@ questions:
       detection directly, with unchanged papers as controls for false
       alarms.
 
-requirements:
-  - kind: app
-    name: sandbox-exec
-  - kind: app
-    name: uv
-    version_spec: ">=0.12"
-    description: >-
-      Installs Calkit into the fresh home of each use-calkit and messy-paper
-      run; the requirement was pinned to uv 0.12.7 for the runs so far.
-  - kind: app
-    name: npm
-    description: >-
-      Installs each agent's CLI at the version in agents/<agent>.yaml from
-      the lock file in agents/clis/<agent>, which the runner does itself.
-  - kind: app
-    name: node
-    description: Runs the Codex CLI's launcher script.
-  - kind: env-var
-    name: CLAUDE_CODE_OAUTH_TOKEN
-    description: >-
-      Long-lived Claude Code token, created with 'claude setup-token' and
-      kept in .env, since agents run with a fresh home directory.
-  - kind: setup
-    name: codex-auth
-    check_command: test -f ~/.codex/auth.json
-    setup_command: codex login
-    description: Codex credentials, copied into each run's fresh home.
-  - kind: app
-    name: colima
-    description: >-
-      Runs the Docker VMs the messy-paper experiment's agents use, one per
-      concurrent run, and a pull-through cache for Docker Hub. The
-      messy-paper stages create and start these VMs themselves, so they
-      can be left stopped.
-  - kind: app
-    name: docker
-    description: >-
-      The Docker CLI, which the messy-paper runner uses to prune each
-      run's VM and the agents use from inside the sandbox.
-  - kind: setup
-    name: opencode-auth
-    check_command: opencode auth list --standalone | grep -q stored
-    setup_command: opencode auth login
-    description: OpenCode credentials, imported into each run's fresh home.
-
 references:
   - path: references.bib
 
@@ -1240,6 +1195,42 @@ pipeline:
         - --agents={agent}
         - --out=runs/{experiment}/{agent}/rep-{rep}
       environment: main
+      requirements:
+        - &macos
+          kind: os
+          equals: Darwin
+          description: >-
+            Agents run in macOS's sandbox, sandbox-exec, which no other OS
+            has.
+        - &npm
+          kind: app
+          name: npm
+          description: >-
+            Installs each agent's CLI at the version in agents/<agent>.yaml
+            from the lock file in agents/clis/<agent>, which the runner does
+            itself.
+        - &node
+          kind: app
+          name: node
+          description: Runs the Codex CLI's launcher script.
+        - &claude-token
+          kind: env-var
+          name: CLAUDE_CODE_OAUTH_TOKEN
+          description: >-
+            Long-lived Claude Code token, created with 'claude setup-token' and
+            kept in .env, since agents run with a fresh home directory.
+        - &codex-auth
+          kind: setup
+          name: codex-auth
+          check_command: test -f ~/.codex/auth.json
+          setup_command: codex login
+          description: Codex credentials, copied into each run's fresh home.
+        - &opencode-auth
+          kind: setup
+          name: opencode-auth
+          check_command: opencode auth list --standalone | grep -q stored
+          setup_command: opencode auth login
+          description: OpenCode credentials, imported into each run's fresh home.
       # One stage per agent and repetition, each depending only on its own
       # agent's config, so adding an agent or repetition runs only the new
       # stages, and one agent's failures (e.g., hitting a usage limit) don't
@@ -1281,6 +1272,13 @@ pipeline:
         - --agents={agent}
         - --out=runs/multi-agent/{agent}/rep-{rep}
       environment: main
+      requirements:
+        - *macos
+        - *npm
+        - *node
+        - *claude-token
+        - *codex-auth
+        - *opencode-auth
       # One stage per agent and repetition, as for run-agents
       iterate_over:
         - arg_name: agent
@@ -1320,6 +1318,21 @@ pipeline:
         - --agents={agent}
         - --out=runs/use-calkit/{agent}/rep-{rep}
       environment: main
+      requirements:
+        - *macos
+        - *npm
+        - *node
+        - *claude-token
+        - *codex-auth
+        - *opencode-auth
+        - &uv
+          kind: app
+          name: uv
+          version_spec: ">=0.12"
+          description: >-
+            Installs Calkit into the fresh home of each use-calkit and
+            messy-paper run; the requirement was pinned to uv 0.12.7 for the
+            runs so far.
       iterate_over:
         - arg_name: agent
           values:
@@ -1370,6 +1383,28 @@ pipeline:
         - --agents={agent}
         - --out=runs/messy-paper/{agent}/rep-{rep}
       environment: main
+      requirements:
+        - *macos
+        - *npm
+        - *node
+        - *claude-token
+        - *codex-auth
+        - *opencode-auth
+        - *uv
+        - &colima
+          kind: app
+          name: colima
+          description: >-
+            Runs the Docker VMs the messy-paper experiment's agents use, one per
+            concurrent run, and a pull-through cache for Docker Hub. The
+            messy-paper stages create and start these VMs themselves, so they
+            can be left stopped.
+        - &docker
+          kind: app
+          name: docker
+          description: >-
+            The Docker CLI, which the messy-paper runner uses to prune each
+            run's VM and the agents use from inside the sandbox.
       iterate_over:
         - arg_name: agent
           values:
@@ -1407,6 +1442,11 @@ pipeline:
         - --agent={agent}
         - --rep={rep}
       environment: main
+      requirements:
+        - *macos
+        - *uv
+        - *colima
+        - *docker
       iterate_over:
         - arg_name: agent
           values:
