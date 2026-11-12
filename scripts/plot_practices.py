@@ -3,9 +3,9 @@
 Each prerequisite, an environment spec saved and the source code saved,
 is shown just before the practice it leads to.
 
-One figure for the reproducibility experiment's no-git condition, where
-agents weren't told about reproducibility (the condition with Git
-installed scored the same), and one for the use-calkit experiment's
+Two figures for the reproducibility experiment's runs where agents weren't
+told about reproducibility, one on a machine without Git (the no-git
+condition) and one with it (default), one for the use-calkit experiment's
 CLI-only condition, where they were told only to use Calkit, and one for
 its skills condition, where Calkit's agent skills were installed too. All
 share the same axis so they can be compared side by side.
@@ -32,6 +32,7 @@ AGENT_NAMES = {"claude": "Claude Code", "codex": "Codex",
 LABELS = {"environment_management": "Environment lock saved"}
 FIGURES = [
     ("reproducibility", "no-git", "practices-unprompted.png"),
+    ("reproducibility", "default", "practices-unprompted-git.png"),
     ("use-calkit", "cli", "practices-use-calkit.png"),
     ("use-calkit", "skills", "practices-use-calkit-skills.png"),
 ]
