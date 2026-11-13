@@ -1,5 +1,7 @@
 # AI agent behavior
 
+[![DOI](https://data.caltech.edu/badge/DOI/10.22002/yawrd-n7f06.svg)](https://doi.org/10.22002/yawrd-n7f06)
+
 Experiments to test AI agent behavior.
 
 Coding agents are treated as subjects of an experiment: each is given an
