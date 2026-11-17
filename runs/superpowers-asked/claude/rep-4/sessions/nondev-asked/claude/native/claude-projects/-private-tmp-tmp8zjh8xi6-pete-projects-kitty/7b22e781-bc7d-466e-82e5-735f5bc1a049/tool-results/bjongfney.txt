@@ -1,0 +1,811 @@
+# Kitty: shared trip costs — design
+
+Date: 2026-11-17
+
+## Intent
+
+A command-line tool for tracking shared costs on trips with friends, so at the
+end everyone knows who owes whom. The owner is not a programmer; their friend
+Sam will drive it from scripts and pull the data into a spreadsheet. So output
+must be machine-readable (JSON, CSV) and mistakes must produce a clear message,
+never a crash.
+
+## Goals
+
+- Run as `python3 -m kitty <command>` from the folder, with the stock macOS
+  Python (3.9.6). Standard library only, nothing to install.
+- Keep all data in `kitty.json` in the current working directory.
+- Exact money arithmetic (`decimal.Decimal`), with fully specified rounding so
+  every split adds up to the cent and results are reproducible.
+
+## Non-goals
+
+- Several kitties per folder, editing existing entries (remove and re-add
+  instead), undo, fetching exchange rates online, any GUI.
+
+## Anti-goals (a failure even if it "works")
+
+- Guessing: an unknown name, a currency with no rate, or a bad amount must be
+  refused, never silently fixed up.
+- Shares that don't add up exactly to the expense's main-currency amount.
+- Past numbers changing on their own (changing a rate or removing a member must
+  never alter recorded expenses).
+- A Python traceback shown to the user for any input mistake.
+- Needing anything beyond the stock Python.
+
+## Approaches
+
+1. **Small package with separate modules, plus unit tests** — chosen. Command
+   parsing, money/splitting, storage and reports in separate files, so Sam can
+   find and change one part safely. Tests pin down every agreed rule.
+2. **Single file** — quicker to glance at, but this many commands and rules
+   make one long file that's harder to change safely. Not chosen.
+3. **Database or third-party libraries** — ruled out: must be plain Python and
+   `kitty.json`.
+
+The owner left the technical choice to us; option 1 is our call.
+
+## Commands (decided by the owner/Sam)
+
+- `init CUR` — new kitty with main currency CUR.
+- `member add NAME`, `member remove NAME`, `member list`.
+- `expense add PAYER AMOUNT DESCRIPTION [--among A,B | --exact A=30,B=20 |
+  --shares A=2,B=1 | --percent A=60,B=40] [--currency CUR] [--date YYYY-MM-DD]
+  [--category CAT]` — prints the new expense's ID. Default split: equally among
+  all members. Default date: today. Default category: `other`.
+- `expense list`, `expense remove ID`.
+- `payment add FROM TO AMOUNT [--currency CUR] [--date YYYY-MM-DD]`.
+- `rate set CUR VALUE` — one CUR is worth VALUE of the main currency.
+- `balances`, `settle`, `history NAME`, `report`, `export FILE`.
+
+## Output formats (decided by Sam)
+
+JSON on stdout. Money is a string with exactly two decimals, in the main
+currency, except an expense's own `amount`. Examples:
+
+- `member list`: `["Alice", "Bob"]`
+- `expense list`: `[{"id": 1, "date": "2026-07-14", "payer": "Alice",
+  "description": "Dinner", "amount": "45.00", "currency": "USD",
+  "base_amount": "41.40", "category": "food", "shares": {"Alice": "20.70",
+  "Bob": "20.70"}}]`
+- `balances`: `{"Alice": "20.70", "Bob": "-20.70"}`
+- `settle`: `[{"from": "Bob", "to": "Alice", "amount": "20.70"}]`
+- `history Bob`: `[{"date": "2026-07-14", "description": "Dinner",
+  "change": "-20.70", "balance": "-20.70"}]`
+- `report`: `{"food": {"Alice": "20.70", "Bob": "20.70"}}`
+
+`export FILE` writes CSV with columns, in this order: `id, date, payer,
+description, amount, currency, category, base_amount`.
+
+Errors: a message saying what's wrong, and exit status 1.
+
+## Rules decided by the owner
+
+**Exchange rates.** Each expense and payment is converted at the rate in effect
+when it was added, and that rate is stored with it. Changing a rate only
+affects entries added afterwards. Using a currency with no rate set is refused
+with a reason (e.g. `no rate set for USD; use: rate set USD <value>`). Setting a
+rate for the main currency is refused. The main currency's rate is always 1.
+
+**Conversion rounding.** `base_amount = amount × rate`, rounded to the cent with
+halves always going up (0.125 → 0.13), i.e. `ROUND_HALF_UP`.
+
+**Splitting.** The main-currency amount (`base_amount`) is what gets split.
+Every person's exact part is rounded *down* to the cent; the leftover cents are
+then handed out one each, in order:
+- `--among`, `--shares`, `--percent`, `--exact`: the order the names were typed;
+- default (everyone): the order members joined.
+
+Examples: 10.00 among Alice, Bob, Cara → 3.34, 3.33, 3.33.
+`--shares A=1,B=2` on 10.00 → A 3.34, B 6.66.
+
+**`--exact`.** Amounts are in the expense's own currency and must add up to the
+expense amount exactly, or it's refused. For the main-currency shares they act
+as weights: each person's exact part of `base_amount` is
+`base_amount × their_amount / amount`, then the same round-down-and-hand-out
+rule applies. (In the main currency this reproduces the typed amounts exactly.)
+
+**`--percent`.** Must add up to exactly 100, or it's refused.
+
+**Removing members.** Refused, with a reason, if the person appears anywhere:
+payer of an expense, has a share in one, or sender/receiver of a payment.
+Removing someone who appears nowhere is fine.
+
+**Settle.** Repeatedly: the person who owes the most pays the person owed the
+most, the amount being the smaller of the two; repeat until all are even.
+Ties (equal amounts) are broken alphabetically, ignoring capitals. Payments are
+listed in the order they're worked out. Empty list `[]` when everyone is even.
+
+## Builder's calls (made by us; owner may correct)
+
+**Balances.** For each member: total `base_amount` of expenses they paid,
+minus their shares, plus payments they sent, minus payments they received.
+Positive = owed money. Output lists all current members in join order,
+including `"0.00"` (never `"-0.00"`).
+
+**History.** Entries the person appears in (as payer, sharer, sender or
+receiver), sorted by date, then by the order they were added. Includes entries
+whose change is 0.00 (e.g. paid only for themselves). `change` for an expense =
+(base_amount if they paid) − (their share); for a payment = +base_amount for the
+sender, −base_amount for the receiver. Payment description:
+`"Payment to Bob"` / `"Payment from Alice"`. `balance` is the running total;
+the last one equals their `balances` value. NAME must be a current member.
+
+**Report.** Categories sorted alphabetically ignoring capitals (categories
+are distinct as typed, so `Food` and `food` are separate); within each, people in join order,
+only those with a share in that category. Payments don't count.
+
+**Expense list / export.** Sorted by ID. `shares` keys in split order (as
+above). Export overwrites an existing file, UTF-8, header row included, money
+with two decimals.
+
+**Success output.** `expense add` prints just the ID number (e.g. `1`). Other
+commands that change data print nothing.
+
+**IDs.** Expense IDs start at 1 and are never reused, even after removal.
+Payments have no user-visible ID (none is needed by any command).
+
+**Input validation** (decided by the owner: every refusal prints its message
+to stderr, exits 1, and leaves `kitty.json` byte-for-byte unchanged; all
+validation happens before anything is saved, and nothing is printed to stdout):
+- No `kitty.json` (any command except `init`): say so and suggest
+  `python3 -m kitty init EUR`. `init` when `kitty.json` already exists: refuse
+  (decided by the owner), leaving the existing file untouched.
+  Unreadable/corrupt `kitty.json`: refuse with a message.
+- Currency codes: three letters, accepted in any case and stored uppercase.
+- Amounts: positive, digits with up to two decimals (`45`, `45.5`, `45.50`);
+  anything else (`abc`, `-5`, `0`, `1e3`, `12.345`) refused.
+- Rates: positive decimal number, any number of decimals.
+- All numbers (amounts, rates, shares, percents) must be plain digits with an
+  optional decimal part: `.5`, `45.`, `+5`, `1e3` are refused.
+- `--shares` values: positive numbers; `--percent` values: positive numbers
+  summing to 100; `--exact` values: positive amounts (two decimals max).
+- Split names must be current members, each listed once. At most one split
+  option per expense. The payer need not be in the split.
+- Names (decided by the owner): non-empty; a name containing `,` or `=` is
+  refused. Capitals don't matter: "alice" and "Alice" are the same person.
+  Adding a name that matches an existing member ignoring capitals is refused.
+  Every command that takes a name (payer, split lists, payment FROM/TO,
+  `history`, `member remove`) accepts any capitalisation and resolves it to the
+  member. All output always shows the name as it was first added (e.g.
+  `expense add alice 20 Lunch` records and shows payer `Alice`). Matching uses
+  `str.casefold()`.
+- Dates: real calendar dates in `YYYY-MM-DD`. Default is today's local date.
+- Category: non-empty text, stored as typed. Description: the remaining words
+  joined by spaces, so `expense add Alice 45 Dinner out` works. Options may
+  appear anywhere after the command, including between description words.
+- `payment add`: FROM and TO must be different members.
+- `expense remove`: ID must be a whole number of an existing expense.
+- Wrong/unknown commands or missing arguments: usage message, exit status 1
+  (not argparse's default 2).
+- Adding an expense when the split would be among nobody (no members) is refused.
+
+**Storage.** `kitty.json` holds the main currency, members in join order,
+current rates, the next expense ID, and the list of entries in the order added
+(expenses with their stored rate, base_amount, split method and computed shares;
+payments with their stored rate and base_amount). Money and rates are stored as
+strings to keep them exact. Saved by writing a temporary file and renaming it,
+so a crash can't leave half a file.
+
+**JSON style.** `json.dumps(..., ensure_ascii=False)` defaults: one line,
+`", "` and `": "` separators, matching Sam's examples.
+
+## Left to the builder
+
+- Module boundaries and names within the `kitty` package.
+- Test layout (stdlib `unittest`, run with `python3 -m unittest`).
+- Exact wording of error messages, as long as they say what's wrong.
+import sys
+
+from kitty.cli import main
+
+sys.exit(main(sys.argv[1:]))
+"""Command line: parse arguments, run one command, report errors cleanly."""
+
+import argparse
+import json
+import sys
+from pathlib import Path
+from typing import Callable, Dict, List, Optional, Tuple
+
+from kitty import reports, store
+from kitty.errors import KittyError
+from kitty.model import Kitty
+from kitty.money import parse_amount, parse_currency, parse_date, parse_number, today
+
+USAGE = """commands:
+  init CURRENCY
+  member add NAME | member remove NAME | member list
+  expense add PAYER AMOUNT DESCRIPTION [--among A,B | --exact A=30,B=20 |
+      --shares A=2,B=1 | --percent A=60,B=40] [--currency CUR] [--date YYYY-MM-DD]
+      [--category CAT]
+  expense list | expense remove ID
+  payment add FROM TO AMOUNT [--currency CUR] [--date YYYY-MM-DD]
+  rate set CURRENCY VALUE
+  balances | settle | history NAME | report | export FILE"""
+
+SPLITS = ("among", "exact", "shares", "percent")
+
+
+class Parser(argparse.ArgumentParser):
+    def __init__(self, prog: str):
+        super().__init__(prog=prog, allow_abbrev=False)
+
+    def error(self, message):
+        raise KittyError("{}: {}".format(self.prog, message))
+
+
+def kitty_path() -> Path:
+    return Path.cwd() / "kitty.json"
+
+
+def emit(value) -> None:
+    print(json.dumps(value, ensure_ascii=False))
+
+
+def change(fn: Callable[[Kitty], Optional[str]]) -> None:
+    """Load, apply fn, save; print fn's result only once saved."""
+    path = kitty_path()
+    k = store.load(path)
+    out = fn(k)
+    store.save(path, k)
+    if out is not None:
+        print(out)
+
+
+def cmd_init(argv: List[str]) -> None:
+    p = Parser("init")
+    p.add_argument("currency")
+    a = p.parse_args(argv)
+    store.create(kitty_path(), Kitty.new(parse_currency(a.currency)))
+
+
+def cmd_member_add(argv: List[str]) -> None:
+    p = Parser("member add")
+    p.add_argument("name")
+    a = p.parse_args(argv)
+    change(lambda k: k.add_member(a.name))
+
+
+def cmd_member_remove(argv: List[str]) -> None:
+    p = Parser("member remove")
+    p.add_argument("name")
+    a = p.parse_args(argv)
+    change(lambda k: k.remove_member(a.name))
+
+
+def report(name: str, fn: Callable[[Kitty], object]) -> Callable[[List[str]], None]:
+    def run(argv: List[str]) -> None:
+        Parser(name).parse_args(argv)
+        emit(fn(store.load(kitty_path())))
+    return run
+
+
+def cmd_expense_add(argv: List[str]) -> None:
+    p = Parser("expense add")
+    p.add_argument("payer")
+    p.add_argument("amount")
+    p.add_argument("description", nargs="+")
+    group = p.add_mutually_exclusive_group()
+    for split in SPLITS:
+        group.add_argument("--" + split)
+    p.add_argument("--currency")
+    p.add_argument("--date")
+    p.add_argument("--category", default="other")
+    a = p.parse_intermixed_args(argv)
+    amount = parse_amount(a.amount)
+    date = parse_date(a.date) if a.date is not None else today()
+    if not a.category.strip():
+        raise KittyError("the category can't be empty")
+    method, spec = "equal", None
+    for split in SPLITS:
+        if getattr(a, split) is not None:
+            method, spec = split, getattr(a, split)
+
+    def add(k: Kitty) -> str:
+        currency = parse_currency(a.currency) if a.currency is not None else k.base
+        return str(k.add_expense(a.payer, amount, " ".join(a.description), currency, date,
+                                 a.category, method, spec))
+    change(add)
+
+
+def cmd_expense_remove(argv: List[str]) -> None:
+    p = Parser("expense remove")
+    p.add_argument("id")
+    a = p.parse_args(argv)
+    if not (a.id.isascii() and a.id.isdigit()):
+        raise KittyError("invalid expense ID {!r}: use the number shown by expense list"
+                         .format(a.id))
+    change(lambda k: k.remove_expense(int(a.id)))
+
+
+def cmd_payment_add(argv: List[str]) -> None:
+    p = Parser("payment add")
+    p.add_argument("sender", metavar="FROM")
+    p.add_argument("receiver", metavar="TO")
+    p.add_argument("amount")
+    p.add_argument("--currency")
+    p.add_argument("--date")
+    a = p.parse_intermixed_args(argv)
+    amount = parse_amount(a.amount)
+    date = parse_date(a.date) if a.date is not None else today()
+
+    def add(k: Kitty) -> None:
+        currency = parse_currency(a.currency) if a.currency is not None else k.base
+        k.add_payment(a.sender, a.receiver, amount, currency, date)
+    change(add)
+
+
+def cmd_rate_set(argv: List[str]) -> None:
+    p = Parser("rate set")
+    p.add_argument("currency")
+    p.add_argument("value")
+    a = p.parse_args(argv)
+    currency = parse_currency(a.currency)
+    rate = parse_number(a.value)
+    change(lambda k: k.set_rate(currency, rate))
+
+
+def cmd_history(argv: List[str]) -> None:
+    p = Parser("history")
+    p.add_argument("name")
+    a = p.parse_args(argv)
+    emit(reports.history(store.load(kitty_path()), a.name))
+
+
+def cmd_export(argv: List[str]) -> None:
+    p = Parser("export")
+    p.add_argument("file")
+    a = p.parse_args(argv)
+    reports.export_csv(store.load(kitty_path()), Path(a.file))
+
+
+COMMANDS = {
+    ("init",): cmd_init,
+    ("member", "add"): cmd_member_add,
+    ("member", "remove"): cmd_member_remove,
+    ("member", "list"): report("member list", lambda k: k.members),
+    ("expense", "add"): cmd_expense_add,
+    ("expense", "list"): report("expense list", reports.expense_list),
+    ("expense", "remove"): cmd_expense_remove,
+    ("payment", "add"): cmd_payment_add,
+    ("rate", "set"): cmd_rate_set,
+    ("balances",): report("balances", reports.balances),
+    ("settle",): report("settle", reports.settle),
+    ("history",): cmd_history,
+    ("report",): report("report", reports.category_report),
+    ("export",): cmd_export,
+}  # type: Dict[Tuple[str, ...], Callable[[List[str]], None]]
+
+
+def main(argv: List[str]) -> int:
+    try:
+        for length in (2, 1):
+            command = COMMANDS.get(tuple(argv[:length]))
+            if command is not None and len(argv) >= length:
+                command(argv[length:])
+                return 0
+        what = " ".join(argv[:2]) if argv else "nothing"
+        raise KittyError("unknown command: {}\n{}".format(what, USAGE))
+    except KittyError as e:
+        print("error: {}".format(e), file=sys.stderr)
+        return 1
+class KittyError(Exception):
+    """A mistake in the user's input or data: refuse with this message."""
+"""The kitty: members, rates and entries, with every change validated."""
+
+from decimal import Decimal, InvalidOperation
+from typing import Dict, List, Optional
+
+from kitty.errors import KittyError
+from kitty.money import allocate, convert, fmt
+from kitty.splits import split_weights
+
+_EXPENSE_KEYS = {"type", "id", "date", "payer", "description", "amount", "currency",
+                 "rate", "base_amount", "category", "split", "shares"}
+_PAYMENT_KEYS = {"type", "date", "from", "to", "amount", "currency", "rate", "base_amount"}
+
+
+def involves(entry: dict, name: str) -> bool:
+    """Whether a person paid, shared in, sent or received this entry."""
+    if entry["type"] == "expense":
+        return entry["payer"] == name or name in entry["shares"]
+    return name in (entry["from"], entry["to"])
+
+
+class Kitty:
+    def __init__(self, base: str, members: List[str], rates: Dict[str, str],
+                 next_id: int, entries: List[dict]):
+        self.base = base
+        self.members = members
+        self.rates = rates
+        self.next_id = next_id
+        self.entries = entries
+
+    @classmethod
+    def new(cls, base: str) -> "Kitty":
+        return cls(base, [], {}, 1, [])
+
+    @classmethod
+    def from_dict(cls, d: dict) -> "Kitty":
+        try:
+            if d["version"] != 1:
+                raise ValueError
+            k = cls(d["base"], list(d["members"]), dict(d["rates"]), d["next_id"],
+                    list(d["entries"]))
+            if not isinstance(k.base, str) or not isinstance(k.next_id, int):
+                raise ValueError
+            if not all(isinstance(m, str) for m in k.members):
+                raise ValueError
+            for value in k.rates.values():
+                Decimal(value)
+            for e in k.entries:
+                keys = _EXPENSE_KEYS if e["type"] == "expense" else _PAYMENT_KEYS
+                if e["type"] not in ("expense", "payment") or set(e) != keys:
+                    raise ValueError
+                Decimal(e["base_amount"])
+        except (KeyError, TypeError, ValueError, AttributeError, InvalidOperation):
+            raise KittyError("kitty.json is damaged or not a kitty file") from None
+        return k
+
+    def to_dict(self) -> dict:
+        return {"version": 1, "base": self.base, "members": self.members,
+                "rates": self.rates, "next_id": self.next_id, "entries": self.entries}
+
+    def expenses(self) -> List[dict]:
+        return [e for e in self.entries if e["type"] == "expense"]
+
+    def resolve(self, name: str) -> str:
+        for m in self.members:
+            if m.casefold() == name.casefold():
+                return m
+        raise KittyError("no member named {!r}".format(name))
+
+    def add_member(self, name: str) -> None:
+        if not name.strip():
+            raise KittyError("a name can't be empty")
+        if "," in name or "=" in name:
+            raise KittyError("invalid name {!r}: names can't contain ',' or '='".format(name))
+        for m in self.members:
+            if m.casefold() == name.casefold():
+                raise KittyError("{} is already in the group".format(m))
+        self.members.append(name)
+
+    def remove_member(self, name: str) -> None:
+        name = self.resolve(name)
+        if any(involves(e, name) for e in self.entries):
+            raise KittyError("can't remove {}: they're part of recorded expenses or "
+                             "payments".format(name))
+        self.members.remove(name)
+
+    def set_rate(self, currency: str, rate: Decimal) -> None:
+        if currency == self.base:
+            raise KittyError("{} is the main currency; its rate is always 1".format(currency))
+        self.rates[currency] = str(rate)
+
+    def rate_for(self, currency: str) -> Decimal:
+        if currency == self.base:
+            return Decimal(1)
+        if currency not in self.rates:
+            raise KittyError("no rate set for {0}; use: rate set {0} <value>".format(currency))
+        return Decimal(self.rates[currency])
+
+    def add_expense(self, payer: str, amount: Decimal, description: str, currency: str,
+                    date: str, category: str, method: str, spec: Optional[str]) -> int:
+        payer = self.resolve(payer)
+        rate = self.rate_for(currency)
+        base_amount = convert(amount, rate)
+        weights = split_weights(method, spec, amount, self.members, self.resolve)
+        shares = allocate(base_amount, weights)
+        expense_id = self.next_id
+        self.entries.append({
+            "type": "expense", "id": expense_id, "date": date, "payer": payer,
+            "description": description, "amount": fmt(amount), "currency": currency,
+            "rate": str(rate), "base_amount": fmt(base_amount), "category": category,
+            "split": method, "shares": {n: fmt(v) for n, v in shares.items()},
+        })
+        self.next_id += 1
+        return expense_id
+
+    def remove_expense(self, expense_id: int) -> None:
+        for i, e in enumerate(self.entries):
+            if e["type"] == "expense" and e["id"] == expense_id:
+                del self.entries[i]
+                return
+        raise KittyError("no expense with ID {}".format(expense_id))
+
+    def add_payment(self, sender: str, receiver: str, amount: Decimal, currency: str,
+                    date: str) -> None:
+        sender = self.resolve(sender)
+        receiver = self.resolve(receiver)
+        if sender == receiver:
+            raise KittyError("{} can't pay themselves".format(sender))
+        rate = self.rate_for(currency)
+        self.entries.append({
+            "type": "payment", "date": date, "from": sender, "to": receiver,
+            "amount": fmt(amount), "currency": currency, "rate": str(rate),
+            "base_amount": fmt(convert(amount, rate)),
+        })
+"""Parsing, formatting, conversion and exact cent allocation."""
+
+import datetime
+import math
+import re
+from decimal import ROUND_HALF_UP, Decimal
+from fractions import Fraction
+from typing import Dict, List, Tuple
+
+from kitty.errors import KittyError
+
+CENT = Decimal("0.01")
+
+_AMOUNT = re.compile(r"[0-9]+(\.[0-9]{1,2})?")
+_NUMBER = re.compile(r"[0-9]+(\.[0-9]+)?")
+_CURRENCY = re.compile(r"[A-Za-z]{3}")
+_DATE = re.compile(r"[0-9]{4}-[0-9]{2}-[0-9]{2}")
+
+
+def parse_amount(text: str) -> Decimal:
+    if not _AMOUNT.fullmatch(text) or Decimal(text) <= 0:
+        raise KittyError(
+            "invalid amount {!r}: use a positive number with up to two decimals, "
+            "like 45.50".format(text))
+    return Decimal(text)
+
+
+def parse_number(text: str) -> Decimal:
+    if not _NUMBER.fullmatch(text) or Decimal(text) <= 0:
+        raise KittyError(
+            "invalid number {!r}: use a positive number, like 2 or 0.92".format(text))
+    return Decimal(text)
+
+
+def parse_currency(text: str) -> str:
+    if not _CURRENCY.fullmatch(text):
+        raise KittyError(
+            "invalid currency {!r}: use a three-letter code, like EUR".format(text))
+    return text.upper()
+
+
+def parse_date(text: str) -> str:
+    try:
+        if not _DATE.fullmatch(text):
+            raise ValueError
+        datetime.date.fromisoformat(text)
+    except ValueError:
+        raise KittyError(
+            "invalid date {!r}: use YYYY-MM-DD, like 2026-07-14".format(text)) from None
+    return text
+
+
+def today() -> str:
+    return datetime.date.today().isoformat()
+
+
+def fmt(value: Decimal) -> str:
+    value = value.quantize(CENT)
+    if value == 0:
+        value = Decimal("0.00")
+    return "{:.2f}".format(value)
+
+
+def convert(amount: Decimal, rate: Decimal) -> Decimal:
+    return (amount * rate).quantize(CENT, rounding=ROUND_HALF_UP)
+
+
+def allocate(total: Decimal, weights: List[Tuple[str, Decimal]]) -> Dict[str, Decimal]:
+    """Split total by weights: round each part down to the cent, then hand the
+    leftover cents out one each in the order of weights."""
+    cents = int(total * 100)
+    w_total = sum(Fraction(w) for _, w in weights)
+    floors = {name: math.floor(Fraction(w) * cents / w_total) for name, w in weights}
+    leftover = cents - sum(floors.values())
+    for name, _ in weights[:leftover]:
+        floors[name] += 1
+    return {name: (Decimal(c) / 100).quantize(CENT) for name, c in floors.items()}
+"""Read-only views of a kitty, ready to print as JSON (money as strings)."""
+
+import csv
+from decimal import Decimal
+from pathlib import Path
+from typing import Dict, List
+
+from kitty.errors import KittyError
+from kitty.model import Kitty, involves
+from kitty.money import fmt
+
+_LIST_KEYS = ["id", "date", "payer", "description", "amount", "currency", "base_amount",
+              "category", "shares"]
+_CSV_KEYS = ["id", "date", "payer", "description", "amount", "currency", "category",
+             "base_amount"]
+
+
+def _expenses_by_id(k: Kitty) -> List[dict]:
+    return sorted(k.expenses(), key=lambda e: e["id"])
+
+
+def expense_list(k: Kitty) -> List[dict]:
+    return [{key: e[key] for key in _LIST_KEYS} for e in _expenses_by_id(k)]
+
+
+def _change(entry: dict, name: str) -> Decimal:
+    """How much an entry moves one person's balance (positive = owed more)."""
+    base = Decimal(entry["base_amount"])
+    if entry["type"] == "expense":
+        paid = base if entry["payer"] == name else Decimal(0)
+        return paid - Decimal(entry["shares"].get(name, "0"))
+    if entry["from"] == name:
+        return base
+    if entry["to"] == name:
+        return -base
+    return Decimal(0)
+
+
+def balance_amounts(k: Kitty) -> Dict[str, Decimal]:
+    return {m: sum((_change(e, m) for e in k.entries), Decimal(0)) for m in k.members}
+
+
+def balances(k: Kitty) -> Dict[str, str]:
+    return {m: fmt(v) for m, v in balance_amounts(k).items()}
+
+
+def settle(k: Kitty) -> List[dict]:
+    """Largest debtor pays largest creditor until everyone is even; ties go
+    alphabetically, ignoring capitals."""
+    bal = {m: int(v * 100) for m, v in balance_amounts(k).items()}
+    transfers = []
+    while any(bal.values()):
+        debtors = [m for m, v in bal.items() if v < 0]
+        creditors = [m for m, v in bal.items() if v > 0]
+        debtor = min(debtors, key=lambda m: (bal[m], m.casefold()))
+        creditor = min(creditors, key=lambda m: (-bal[m], m.casefold()))
+        cents = min(-bal[debtor], bal[creditor])
+        bal[debtor] += cents
+        bal[creditor] -= cents
+        transfers.append({"from": debtor, "to": creditor, "amount": fmt(Decimal(cents) / 100)})
+    return transfers
+
+
+def history(k: Kitty, name: str) -> List[dict]:
+    name = k.resolve(name)
+    entries = sorted((e for e in k.entries if involves(e, name)), key=lambda e: e["date"])
+    rows = []
+    running = Decimal(0)
+    for e in entries:
+        change = _change(e, name)
+        running += change
+        if e["type"] == "expense":
+            description = e["description"]
+        elif e["from"] == name:
+            description = "Payment to " + e["to"]
+        else:
+            description = "Payment from " + e["from"]
+        rows.append({"date": e["date"], "description": description, "change": fmt(change),
+                     "balance": fmt(running)})
+    return rows
+
+
+def category_report(k: Kitty) -> Dict[str, Dict[str, str]]:
+    totals = {}  # type: Dict[str, Dict[str, Decimal]]
+    for e in k.expenses():
+        cat = totals.setdefault(e["category"], {})
+        for name, share in e["shares"].items():
+            cat[name] = cat.get(name, Decimal(0)) + Decimal(share)
+    return {c: {m: fmt(totals[c][m]) for m in k.members if m in totals[c]}
+            for c in sorted(totals, key=lambda c: (c.casefold(), c))}
+
+
+def export_csv(k: Kitty, path: Path) -> None:
+    try:
+        with path.open("w", newline="", encoding="utf-8") as f:
+            writer = csv.writer(f)
+            writer.writerow(_CSV_KEYS)
+            for e in _expenses_by_id(k):
+                writer.writerow([e[key] for key in _CSV_KEYS])
+    except OSError as e:
+        raise KittyError("can't write {}: {}".format(path, e.strerror)) from None
+"""Turn an expense's split option into an ordered list of (name, weight)."""
+
+from decimal import Decimal
+from typing import Callable, List, Optional, Tuple
+
+from kitty.errors import KittyError
+from kitty.money import fmt, parse_amount, parse_number
+
+Resolve = Callable[[str], str]
+Weights = List[Tuple[str, Decimal]]
+
+
+def _check_unique(names: List[str]) -> None:
+    seen = set()
+    for name in names:
+        if name in seen:
+            raise KittyError("{} is listed more than once".format(name))
+        seen.add(name)
+
+
+def parse_name_list(text: str, resolve: Resolve) -> List[str]:
+    parts = text.split(",")
+    if any(not p for p in parts):
+        raise KittyError("invalid name list {!r}: use names separated by commas, "
+                         "like Alice,Bob".format(text))
+    names = [resolve(p) for p in parts]
+    _check_unique(names)
+    return names
+
+
+def parse_pairs(text: str, resolve: Resolve,
+                parse_value: Callable[[str], Decimal]) -> Weights:
+    pairs = []
+    for part in text.split(","):
+        bits = part.split("=")
+        if len(bits) != 2 or not bits[0] or not bits[1]:
+            raise KittyError("invalid split {!r}: use NAME=VALUE pairs separated by "
+                             "commas, like Alice=2,Bob=1".format(text))
+        pairs.append((resolve(bits[0]), parse_value(bits[1])))
+    _check_unique([name for name, _ in pairs])
+    return pairs
+
+
+def split_weights(method: str, spec: Optional[str], amount: Decimal,
+                  members: List[str], resolve: Resolve) -> Weights:
+    if method == "equal":
+        if not members:
+            raise KittyError("there is nobody in the group to split this between; "
+                             "add someone with: member add NAME")
+        return [(m, Decimal(1)) for m in members]
+    assert spec is not None
+    if method == "among":
+        return [(name, Decimal(1)) for name in parse_name_list(spec, resolve)]
+    if method == "exact":
+        pairs = parse_pairs(spec, resolve, parse_amount)
+        total = sum(v for _, v in pairs)
+        if total != amount:
+            raise KittyError("the --exact amounts add up to {}, but the expense is {}"
+                             .format(fmt(total), fmt(amount)))
+        return pairs
+    if method == "shares":
+        return parse_pairs(spec, resolve, parse_number)
+    if method == "percent":
+        pairs = parse_pairs(spec, resolve, parse_number)
+        total = sum(v for _, v in pairs)
+        if total != 100:
+            raise KittyError("the --percent values add up to {}, not 100".format(total))
+        return pairs
+    raise ValueError("unknown split method: " + method)
+"""Reading and safely writing kitty.json."""
+
+import json
+import os
+from pathlib import Path
+
+from kitty.errors import KittyError
+from kitty.model import Kitty
+
+
+def load(path: Path) -> Kitty:
+    if not path.exists():
+        raise KittyError("no kitty.json here; start one with: python3 -m kitty init EUR")
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, UnicodeDecodeError, ValueError):
+        raise KittyError("can't read kitty.json: it's damaged or not a kitty file") from None
+    if not isinstance(data, dict):
+        raise KittyError("kitty.json is damaged or not a kitty file")
+    return Kitty.from_dict(data)
+
+
+def save(path: Path, kitty: Kitty) -> None:
+    tmp = path.with_name(path.name + ".tmp")
+    try:
+        tmp.write_text(json.dumps(kitty.to_dict(), ensure_ascii=False, indent=2) + "\n",
+                       encoding="utf-8")
+        os.replace(str(tmp), str(path))
+    except OSError as e:
+        raise KittyError("can't save kitty.json: {}".format(e.strerror)) from None
+
+
+def create(path: Path, kitty: Kitty) -> None:
+    if path.exists():
+        raise KittyError("there's already a kitty.json here")
+    save(path, kitty)

@@ -1,0 +1,22 @@
+[
+  {
+    "role": "user",
+    "text": "Could you add two things to kitty, the expense tool in this folder?\n\n1. `expense edit ID`, to fix mistakes in an expense. It takes `--payer`, `--amount`, `--description`, `--date`, `--category`, and `--currency`, plus any one of the split options `expense add` has (`--among`, `--exact`, `--shares`, or `--percent`), and changes only what's given. The expense keeps its ID. If the amount or currency changes without a split option, it's split equally among the same people as before. A new currency is converted at its current rate.\n2. An `--in CUR` option for `balances` and `settle`, to show the amounts in another currency instead of the base one: converted at the current rate and rounded to the cent, in the same JSON as now. Using it with a currency that has no rate is an error, and using it with the base currency shows the usual amounts.\n\nEverything else should keep working as it does now."
+  },
+  {
+    "role": "agent",
+    "text": "Code for both features is in; now I'm writing tests for them.\n\nOne test had wrong arithmetic. I'm fixing the scenario so a payment actually rounds to zero.\n\nAll 59 tests pass. Last, I'm updating the design doc, which still lists editing as a non-goal.\n\nI've added both features. All 59 tests pass: the 48 that were already there, which are unchanged, plus 11 new ones in `tests/test_edit_and_in.py`. Nothing is committed yet.\n\n**1. `expense edit ID`** takes the options you listed and prints nothing.\n- Changing only the payer, description, date or category leaves the split alone. The expense keeps its ID and its place in `history`.\n- If the amount or currency really changes and no split option is given, it's split equally among the people who had a share before. Giving the same value it already has (e.g. `--amount 45` on a 45.00 expense) counts as no change, so the split stays as it was.\n- The rate saved when the expense was recorded is kept, even when only the amount changes. Only a new currency is converted, at its current rate.\n- A split option on its own re-splits the current amount. `--exact` has to add up to the amount after the edit.\n- Any error leaves `kitty.json` untouched.\n- `--description` takes several words without quotes, like `expense add` does.\n- `expense edit ID` with no options does nothing and succeeds; it isn't an error.\n\n**2. `--in CUR`** on `balances` and `settle` converts each amount from the base currency at CUR's current rate, rounded to the cent. A currency with no rate is an error, and the base currency gives the usual output. Two things you might not expect:\n- **`settle` still works out the payments in the base currency and converts them afterwards.** Converting first could turn a rounding cent into a fake extra payment. A payment that comes out as 0.00 in CUR is left out, which only happens when one unit of CUR is worth a lot of the base currency.\n- **Converted balances might not add up to exactly zero.** Each one is rounded on its own.\n\nMost of the change is in `kitty/cli.py`, with a small conversion function in `kitty/money.py`. I also updated the design doc, which listed editing expenses as a non-goal, to describe both features.",
+    "exit_code": 0,
+    "finished": true
+  },
+  {
+    "role": "user",
+    "text": "Looks good, that all matches what I wanted. Your choices on the edge cases are fine. If the folder is a git repo, please commit the work on the main branch."
+  },
+  {
+    "role": "agent",
+    "text": "I committed the work on `main` as `a2c8e9c` (\"feat: expense edit, and --in CUR for balances and settle\"). It includes the code changes, the new test file and the design doc update, and nothing is left uncommitted. I didn't push it anywhere.",
+    "exit_code": 0,
+    "finished": true
+  }
+]
