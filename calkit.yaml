@@ -1136,7 +1136,176 @@ questions:
       an agent reproducing it without the code notices, which would measure
       detection directly, with unchanged papers as controls for false
       alarms.
-
+  - name: superpowers
+    question: >-
+      Do the Superpowers skills produce higher-quality software than an
+      agent's default conversational workflow?
+    hypothesis: >-
+      Not higher-quality software, but software built with better
+      practices, at a higher cost. Superpowers [@vincent2026] has the agent
+      brainstorm with the user, write a spec and a plan, and build with
+      test-driven development on a Git branch, sending each task to fresh
+      subagents with reviews. Asking questions does pay off when a task
+      leaves details open, since agents that interact with a user holding
+      the missing details resolve many more underspecified issues, though
+      models are poor at noticing what is underspecified
+      [@vijayvargiya2026], and writing tests first can make code more
+      correct [@mathews2024]. But extra structure and agents add little to
+      a single agent that is already capable [@kim2025]: in this project's
+      multi-agent experiment, Claude Code passed every hidden check on both
+      tasks with or without subagents, at two to three times the tokens
+      with them. Practices are another matter. Unprompted, Claude Code
+      added tests in every run on the code-quality codebase that already
+      had a test suite and in none on the one that didn't, and it never
+      used Git in the reproducibility runs; a new project has neither
+      tests nor Git, and Superpowers' skills require both. Superpowers' own
+      evaluation harness tests whether agents follow its workflow, not
+      whether the software is better than without it [@primeradiant2026].
+      Pooling the two simulated users: the mean fractions of hidden checks
+      passed by the build and by a follow-up change to it will each be
+      within 10 percentage points with Superpowers of the default's; more
+      than half of the runs with Superpowers, and fewer than half without,
+      will leave tests that pass, and likewise good version control; and
+      the median tokens and agent wall time will both be higher with
+      Superpowers.
+    approach: >-
+      Claude Code is asked five times with Superpowers installed and five
+      times as installed, for each of two simulated users, a developer and
+      someone who isn't one, to build kitty, a greenfield command-line tool
+      for sharing a group trip's expenses with about a dozen commands. Each
+      user makes a one-page request in their own words, stating the same
+      commands and output formats and never mentioning Superpowers, and
+      replies as the agent works (played by Claude Code with no tools and a
+      fixed persona), answering from private notes on the details the
+      request leaves open. Each build is scored by hidden checks run against
+      its command-line interface (of behavior the request states and of
+      behavior only the notes give); for maintainability, by hidden checks
+      of a follow-up change that a fresh Claude Code, the same for every
+      build, makes to it, and by three static code-quality metrics; for
+      practices, by whether it leaves automated tests that pass and good
+      version control (a Git repo with everything committed on the main
+      branch, nothing left on other branches or worktrees, and no generated
+      files tracked); and for cost, by the agent's wall time and tokens.
+      Results are pooled across the two users and also reported for each.
+    answer:
+      if held: >-
+        No, as hypothesized, though it does leave better practices, at a
+        higher cost. Pooling the two simulated users, Claude Code's
+        kitty builds with Superpowers passed {sp_pass:.0%} of the hidden
+        checks on average, against {def_pass:.0%} without it
+        ({sp_unstated:.0%} and {def_unstated:.0%} of those of details
+        only the user's notes gave), and a follow-up change to them
+        passed {sp_change:.0%} of its checks, against {def_change:.0%}.
+        With Superpowers, {sp_tests:.0%} of runs left tests that passed
+        and {sp_vc:.0%} left good version control, against
+        {def_tests:.0%} and {def_vc:.0%} without it. Builds with
+        Superpowers took {time_ratio:.1f}x the agent's median wall time
+        and {token_ratio:.1f}x its median tokens.
+      elif quality_same: >-
+        No, as hypothesized, by the hidden checks; but not every
+        hypothesized difference in practices or cost appeared. Pooling
+        the two simulated users, Claude Code's kitty builds with
+        Superpowers passed {sp_pass:.0%} of the hidden checks on
+        average, against {def_pass:.0%} without it ({sp_unstated:.0%}
+        and {def_unstated:.0%} of those of details only the user's notes
+        gave), and a follow-up change to them passed {sp_change:.0%} of
+        its checks, against {def_change:.0%}. With Superpowers,
+        {sp_tests:.0%} of runs left tests that passed and {sp_vc:.0%}
+        left good version control, against {def_tests:.0%} and
+        {def_vc:.0%} without it. Builds with Superpowers took
+        {time_ratio:.1f}x the agent's median wall time and
+        {token_ratio:.1f}x its median tokens.
+      elif higher or change_higher: >-
+        Yes, contrary to the hypothesis. Pooling the two simulated
+        users, Claude Code's kitty builds with Superpowers passed
+        {sp_pass:.0%} of the hidden checks on average, against
+        {def_pass:.0%} without it ({sp_unstated:.0%} and
+        {def_unstated:.0%} of those of details only the user's notes
+        gave), and a follow-up change to them passed {sp_change:.0%} of
+        its checks, against {def_change:.0%}. With Superpowers,
+        {sp_tests:.0%} of runs left tests that passed and {sp_vc:.0%}
+        left good version control, against {def_tests:.0%} and
+        {def_vc:.0%} without it. Builds with Superpowers took
+        {time_ratio:.1f}x the agent's median wall time and
+        {token_ratio:.1f}x its median tokens.
+      else: >-
+        No, and it did worse by the hidden checks, contrary to the
+        hypothesis. Pooling the two simulated users, Claude Code's kitty
+        builds with Superpowers passed {sp_pass:.0%} of the hidden
+        checks on average, against {def_pass:.0%} without it
+        ({sp_unstated:.0%} and {def_unstated:.0%} of those of details
+        only the user's notes gave), and a follow-up change to them
+        passed {sp_change:.0%} of its checks, against {def_change:.0%}.
+        With Superpowers, {sp_tests:.0%} of runs left tests that passed
+        and {sp_vc:.0%} left good version control, against
+        {def_tests:.0%} and {def_vc:.0%} without it. Builds with
+        Superpowers took {time_ratio:.1f}x the agent's median wall time
+        and {token_ratio:.1f}x its median tokens.
+    evidence:
+      - kind: figure
+        path: figures/superpowers.png
+      - kind: result
+        path: results/superpowers.json
+        values:
+          held: hypothesis.all
+          quality_same: hypothesis.quality_same
+          higher: hypothesis.pass_rate_higher
+          change_higher: hypothesis.change_higher
+          n: summary.default.n_runs
+          def_pass: summary.default.mean_pass_rate
+          sp_pass: summary.superpowers.mean_pass_rate
+          def_stated: summary.default.mean_stated_pass_rate
+          sp_stated: summary.superpowers.mean_stated_pass_rate
+          def_unstated: summary.default.mean_unstated_pass_rate
+          sp_unstated: summary.superpowers.mean_unstated_pass_rate
+          def_change: summary.default.mean_change_pass_rate
+          sp_change: summary.superpowers.mean_change_pass_rate
+          def_regressed: summary.default.mean_frac_regressed
+          sp_regressed: summary.superpowers.mean_frac_regressed
+          def_tests: summary.default.frac_passing_tests
+          sp_tests: summary.superpowers.frac_passing_tests
+          def_vc: summary.default.frac_good_version_control
+          sp_vc: summary.superpowers.frac_good_version_control
+          def_cov: summary.default.mean_own_coverage
+          sp_cov: summary.superpowers.mean_own_coverage
+          time_ratio: summary.comparison.ratio_median_agent_s
+          token_ratio: summary.comparison.ratio_median_tokens
+          sp_used: summary.superpowers.frac_used_superpowers
+          d_ruff: summary.comparison.diff_mean_ruff_per_100_sloc
+          d_cc: summary.comparison.diff_mean_mean_cc
+          d_mi: summary.comparison.diff_mean_mi
+          def_replies: summary.default.median_replies
+          sp_replies: summary.superpowers.median_replies
+          dev_def_pass: summary.by_user.dev.default.mean_pass_rate
+          dev_sp_pass: summary.by_user.dev.superpowers.mean_pass_rate
+          nondev_def_pass: summary.by_user.nondev.default.mean_pass_rate
+          nondev_sp_pass: summary.by_user.nondev.superpowers.mean_pass_rate
+          dev_def_unstated: summary.by_user.dev.default.mean_unstated_pass_rate
+          dev_sp_unstated: summary.by_user.dev.superpowers.mean_unstated_pass_rate
+          nondev_def_unstated: summary.by_user.nondev.default.mean_unstated_pass_rate
+          nondev_sp_unstated: summary.by_user.nondev.superpowers.mean_unstated_pass_rate
+    notes: >-
+      Each of the four combinations of user and Superpowers ran five times
+      ({n} runs per arm), with Superpowers 7.0.2 and Claude Code's pinned
+      model. By user, the mean fraction of hidden checks passed was
+      {dev_def_pass:.0%} without Superpowers and {dev_sp_pass:.0%} with it
+      for the developer, and {nondev_def_pass:.0%} and {nondev_sp_pass:.0%}
+      for the non-developer; for the checks of details only the notes
+      gave, {dev_def_unstated:.0%} and {dev_sp_unstated:.0%}, and
+      {nondev_def_unstated:.0%} and {nondev_sp_unstated:.0%}. Pooled, the
+      checks of behavior the request stated were passed at {def_stated:.0%}
+      without Superpowers and {sp_stated:.0%} with it. The follow-up change
+      broke {def_regressed:.0%} and {sp_regressed:.0%} of the checks each
+      build had passed. Builds' own tests covered {def_cov:.0%} and
+      {sp_cov:.0%} of the package's lines on average, counting none for a
+      build without tests. With Superpowers, mean lint violations per 100 SLOC changed
+      by {d_ruff:+.1f}, mean cyclomatic complexity by {d_cc:+.2f}, and
+      maintainability index by {d_mi:+.1f}. Superpowers skills were
+      invoked in {sp_used:.0%} of the runs with it installed. The median
+      conversation took {def_replies:g} replies from the simulated user
+      without Superpowers and {sp_replies:g} with it. The runner was
+      checked on a different, one-line request before the recorded runs
+      (see the README).
 references:
   - path: references.bib
 
@@ -1168,6 +1337,12 @@ environments:
   render:
     kind: uv-venv
     path: envs/render/requirements.txt
+    python: "3.13"
+  # Scoring the superpowers experiment, which also runs the agents' own
+  # tests
+  superpowers:
+    kind: uv-venv
+    path: envs/superpowers/requirements.txt
     python: "3.13"
 
 pipeline:
@@ -1306,6 +1481,98 @@ pipeline:
           storage: git
         - runs/multi-agent/{agent}/rep-{rep}/workspaces
         - runs/multi-agent/{agent}/rep-{rep}/trees
+    run-superpowers:
+      kind: python-script
+      description: >-
+        Run Claude Code with and without Superpowers on the superpowers
+        experiment's build, in a conversation with a simulated user, saving
+        full sessions and final workspaces.
+      script_path: scripts/run_superpowers.py
+      args:
+        - --rep={rep}
+        - --agents={agent}
+        - --out=runs/superpowers/{agent}/rep-{rep}
+      environment: main
+      requirements:
+        - *macos
+        - *npm
+        - *node
+        - *claude-token
+        - kind: app
+          name: git
+          description: >-
+            Fetches Superpowers at the commit pinned in the experiment's
+            config, which the runner does itself.
+      # One stage per repetition, with the four conditions in parallel, as
+      # for run-agents; Superpowers is for Claude Code here, so it's the
+      # only agent
+      iterate_over:
+        - arg_name: agent
+          values:
+            - claude
+        - arg_name: rep
+          values:
+            - range:
+                start: 1
+                stop: 6
+      # The hidden checks and reference implementation aren't inputs, so
+      # changing them rescores without rerunning the agent
+      inputs:
+        - scripts/run_experiment.py
+        - agents/{agent}.yaml
+        - agents/clis/{agent}
+        - agents/sandbox.sb
+        - experiments/superpowers/experiment.yaml
+        - experiments/superpowers/user
+      outputs:
+        - path: runs/superpowers/{agent}/rep-{rep}/sessions
+          storage: git
+        - runs/superpowers/{agent}/rep-{rep}/workspaces
+        - runs/superpowers/{agent}/rep-{rep}/trees
+    change-superpowers:
+      kind: python-script
+      description: >-
+        Give each of a repetition's finished kitty builds the follow-up
+        change, made by Claude Code as installed in a conversation with the
+        simulated developer, saving full sessions and final workspaces.
+      script_path: scripts/run_superpowers.py
+      args:
+        - --phase=change
+        - --rep={rep}
+        - --agents={agent}
+        - --from=runs/superpowers/{agent}/rep-{rep}
+        - --out=runs/superpowers-change/{agent}/rep-{rep}
+      environment: main
+      requirements:
+        - *macos
+        - *npm
+        - *node
+        - *claude-token
+      iterate_over:
+        - arg_name: agent
+          values:
+            - claude
+        - arg_name: rep
+          values:
+            - range:
+                start: 1
+                stop: 6
+      inputs:
+        - scripts/run_experiment.py
+        - agents/{agent}.yaml
+        - agents/clis/{agent}
+        - agents/sandbox.sb
+        - experiments/superpowers/experiment.yaml
+        - experiments/superpowers/change/change.yaml
+        - experiments/superpowers/change/request.md
+        - experiments/superpowers/change/notes.md
+        - experiments/superpowers/user/dev/persona.md
+        - runs/superpowers/{agent}/rep-{rep}/workspaces
+      outputs:
+        - path: runs/superpowers-change/{agent}/rep-{rep}/sessions
+          storage: git
+        - runs/superpowers-change/{agent}/rep-{rep}/workspaces
+        - runs/superpowers-change/{agent}/rep-{rep}/trees
     run-use-calkit:
       kind: python-script
       description: >-
@@ -1598,6 +1865,45 @@ pipeline:
         - path: results/failing-test.json
           storage: git
         - path: figures/failing-test.png
+          storage: git
+    scan-heredoc:
+      kind: python-script
+      description: >-
+        Find where shell here-documents failed in the sandbox in the
+        earlier experiments' runs, and whether any deliverable was lost.
+      script_path: scripts/scan_heredoc.py
+      environment: main
+      inputs:
+        - scripts/common.py
+        - runs/code-quality
+        - runs/reproducibility
+        - runs/failing-test
+        - runs/multi-agent
+        - runs/use-calkit
+        - runs/messy-paper
+      outputs:
+        - path: results/heredoc.json
+          storage: git
+    score-superpowers:
+      kind: python-script
+      script_path: scripts/score_superpowers.py
+      environment: superpowers
+      inputs:
+        - agents
+        - scripts/common.py
+        - scripts/score_code_quality.py
+        - experiments/superpowers/experiment.yaml
+        - experiments/superpowers/checks
+        - experiments/superpowers/reference
+        - experiments/superpowers/change/change.yaml
+        - experiments/superpowers/change/checks
+        - experiments/superpowers/change/reference
+        - runs/superpowers
+        - runs/superpowers-change
+      outputs:
+        - path: results/superpowers.json
+          storage: git
+        - path: figures/superpowers.png
           storage: git
     score-messy-paper:
       kind: python-script

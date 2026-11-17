@@ -83,6 +83,71 @@ stages:
         - 5
     desc: Automatically generated from the 'run-multi-agent' stage in
       calkit.yaml. Changes made here will be overwritten.
+  run-superpowers:
+    cmd: calkit xenv -n main --no-check -- python scripts/run_superpowers.py
+      --rep=${item.rep} --agents=${item.agent}
+      --out=runs/superpowers/${item.agent}/rep-${item.rep}
+    deps:
+      - scripts/run_superpowers.py
+      - scripts/run_experiment.py
+      - agents/${item.agent}.yaml
+      - agents/clis/${item.agent}
+      - agents/sandbox.sb
+      - experiments/superpowers/experiment.yaml
+      - experiments/superpowers/user
+      - .calkit/env-locks/main
+    outs:
+      - runs/superpowers/${item.agent}/rep-${item.rep}/sessions:
+          cache: false
+          persist: false
+      - runs/superpowers/${item.agent}/rep-${item.rep}/workspaces
+      - runs/superpowers/${item.agent}/rep-${item.rep}/trees
+    matrix:
+      agent:
+        - claude
+      rep:
+        - 1
+        - 2
+        - 3
+        - 4
+        - 5
+    desc: Automatically generated from the 'run-superpowers' stage in
+      calkit.yaml. Changes made here will be overwritten.
+  change-superpowers:
+    cmd: calkit xenv -n main --no-check -- python scripts/run_superpowers.py
+      --phase=change --rep=${item.rep} --agents=${item.agent}
+      --from=runs/superpowers/${item.agent}/rep-${item.rep}
+      --out=runs/superpowers-change/${item.agent}/rep-${item.rep}
+    deps:
+      - scripts/run_superpowers.py
+      - scripts/run_experiment.py
+      - agents/${item.agent}.yaml
+      - agents/clis/${item.agent}
+      - agents/sandbox.sb
+      - experiments/superpowers/experiment.yaml
+      - experiments/superpowers/change/change.yaml
+      - experiments/superpowers/change/request.md
+      - experiments/superpowers/change/notes.md
+      - experiments/superpowers/user/dev/persona.md
+      - runs/superpowers/${item.agent}/rep-${item.rep}/workspaces
+      - .calkit/env-locks/main
+    outs:
+      - runs/superpowers-change/${item.agent}/rep-${item.rep}/sessions:
+          cache: false
+          persist: false
+      - runs/superpowers-change/${item.agent}/rep-${item.rep}/workspaces
+      - runs/superpowers-change/${item.agent}/rep-${item.rep}/trees
+    matrix:
+      agent:
+        - claude
+      rep:
+        - 1
+        - 2
+        - 3
+        - 4
+        - 5
+    desc: Automatically generated from the 'change-superpowers' stage in
+      calkit.yaml. Changes made here will be overwritten.
   run-use-calkit:
     cmd: calkit xenv -n main --no-check -- python scripts/run_use_calkit.py
       --rep=${item.rep} --agents=${item.agent}
@@ -362,6 +427,50 @@ stages:
           cache: false
           persist: false
     desc: Automatically generated from the 'score-failing-test' stage in
+      calkit.yaml. Changes made here will be overwritten.
+  scan-heredoc:
+    cmd: calkit xenv -n main --no-check -- python scripts/scan_heredoc.py
+    deps:
+      - scripts/scan_heredoc.py
+      - scripts/common.py
+      - runs/code-quality
+      - runs/reproducibility
+      - runs/failing-test
+      - runs/multi-agent
+      - runs/use-calkit
+      - runs/messy-paper
+      - .calkit/env-locks/main
+    outs:
+      - results/heredoc.json:
+          cache: false
+          persist: false
+    desc: Automatically generated from the 'scan-heredoc' stage in calkit.yaml.
+      Changes made here will be overwritten.
+  score-superpowers:
+    cmd: calkit xenv -n superpowers --no-check -- python
+      scripts/score_superpowers.py
+    deps:
+      - scripts/score_superpowers.py
+      - agents
+      - scripts/common.py
+      - scripts/score_code_quality.py
+      - experiments/superpowers/experiment.yaml
+      - experiments/superpowers/checks
+      - experiments/superpowers/reference
+      - experiments/superpowers/change/change.yaml
+      - experiments/superpowers/change/checks
+      - experiments/superpowers/change/reference
+      - runs/superpowers
+      - runs/superpowers-change
+      - .calkit/env-locks/superpowers
+    outs:
+      - results/superpowers.json:
+          cache: false
+          persist: false
+      - figures/superpowers.png:
+          cache: false
+          persist: false
+    desc: Automatically generated from the 'score-superpowers' stage in
       calkit.yaml. Changes made here will be overwritten.
   score-messy-paper:
     cmd: calkit xenv -n main --no-check -- python scripts/score_messy_paper.py

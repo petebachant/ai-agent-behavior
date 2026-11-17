@@ -197,6 +197,52 @@ others.
   revision is complete if the paper has the new Reynolds numbers and none
   of the old ones, checked against hidden reference values; its wall
   time and tokens measure how quick it was.
+- `superpowers`: Claude Code alone, with and without the
+  [Superpowers](https://github.com/obra/superpowers) plugin (version
+  7.0.2, at a pinned commit), installed into the fresh home through its
+  own marketplace file with `claude plugin install`, as a user would. Each
+  run starts in an empty folder with a one-page request to build `kitty`,
+  a greenfield command-line tool for sharing a group trip's expenses. It
+  states the commands and output formats but leaves details open, such as
+  how leftover cents are split and what happens to old expenses when a
+  rate changes. There are two simulated users, a developer and someone who
+  isn't one (whose request frames the commands and formats as a friend's
+  notes), so four conditions. Superpowers brainstorms and asks for
+  approval before building, so the run is a conversation
+  (`scripts/run_superpowers.py`): after each agent turn, the simulated
+  user replies, and the agent's session resumes with the reply. The
+  simulated user is the same pinned Claude Code with no tools, slash
+  commands, or saved session, in its own empty sandboxed home, with its
+  persona (`experiments/superpowers/user/<user>/persona.md`) as its system
+  prompt and, on stdin, its request, its private notes on the open
+  details (the same details in each user's own words), and the agent's
+  messages so far (not its tool calls). It answers questions from the
+  notes without volunteering them, corrects proposals that contradict
+  them, approves the rest, and says when the agent is done, which ends
+  the run (as do 40 replies or four hours). The developer answers
+  technical questions and asks for the work to be merged into the main
+  branch; the non-developer says they don't know and leaves technical
+  choices to the agent. Hidden checks (`experiments/superpowers/checks`)
+  run the finished tool as `python3 -m kitty` in fresh folders: 24 of
+  behavior the request states and 21 of details only the notes give. The
+  reference implementation passes them all, an empty project none, and
+  variants of the reference with float rounding, leftover cents given
+  last, or case-sensitive names fail only the checks of those details.
+  For maintainability, each build then gets a follow-up change
+  (`experiments/superpowers/change`, the `change-superpowers` stage): a
+  fresh Claude Code as installed, never with Superpowers, starts from the
+  build's archived project folder (its Git history included) and the
+  simulated developer asks it to add an `expense edit` command and an
+  `--in` currency option for two reports. Twelve hidden checks of the
+  change all pass on its reference implementation and none on the
+  build's, and the build's checks are run again for regressions. Practices
+  are scored from the build's folder: whether its own tests pass under
+  pytest and how much of the package they cover, and whether it has good
+  version control (a Git repo with at least one commit, everything
+  committed, on the main branch, no unmerged branches or extra worktrees,
+  and no generated files such as caches or `kitty.json` tracked). The
+  code-quality experiment's static metrics and the agent's wall time and
+  tokens are recorded too.
 
 Two questions, `prose-only` and `methods-mismatch`, are answered from
 published studies rather than runs of this project's own. Kohler et al.'s
@@ -311,6 +357,33 @@ paper rather than 7, against none of the 15 not told, and 3 revisions
 left a stale Reynolds number in each condition, so the answer's branch
 is the same either way.
 
+The `superpowers` question was registered after all of the above had
+been run and answered, before any of its runs, with its answer's wording
+for each outcome written in advance, and wasn't piloted on its task.
+Superpowers' own evaluation harness [@primeradiant2026] was read first:
+it grades whether agents follow Superpowers' workflow, and the two
+comparisons with plain agents recorded in it, a two-repetition smoke test
+and a release that stopped before its comparison runs, report no
+difference either way. The runner was tested with one-line requests
+unrelated to the task (write a greeting script, checking the wording
+first, and then change its greeting), in every condition and in the
+change phase, which checked that the plugin installed and its start-up
+context reached the model, that the session resumed across turns, that
+the change started from the build's folder, and that the simulated user
+replied in its JSON form and ended the run. With Superpowers installed,
+the agent asked about the wording without invoking any of its skills.
+The smoke test also showed that zsh couldn't make the temp file for a
+shell here-document (`cat <<EOF`), which it writes under `$TMPPREFIX`
+(`/tmp/zsh` by default) rather than `$TMPDIR`, outside the sandbox's
+writable run dir. This runner sets `TMPPREFIX` inside the run's temp
+dir, and a here-document then worked. The other experiments' runner
+doesn't, and their runs were kept (see **Here-documents** below).
+The hidden checks were tested against the reference implementations, an
+empty project, and the three variants above, and the scorer against
+hand-made workspaces with and without tests, Git histories that were
+clean, uncommitted, or tracked the tool's data file, and change
+workspaces.
+
 **Agent versions.** OpenCode's original credentials expired before these
 later experiments ran, and OpenCode was upgraded from 1.19.0 to 2.1.4
 when logging in again. To keep each agent on one version across the
@@ -360,6 +433,36 @@ run, in any experiment, left work running in the background when it
 ended, which the transcripts show, and the change affects only OpenCode,
 so the other experiments' runs and the other agents' stages were kept and
 recorded as current.
+
+**Here-documents.** In the runs of every experiment before
+`superpowers`, zsh couldn't make the temp file for a shell
+here-document, since it writes it under `/tmp/zsh` (its `$TMPPREFIX`)
+rather than the run's `$TMPDIR`, and the sandbox doesn't allow writes
+there; this wasn't noticed until the `superpowers` runner was tested.
+The `scan-heredoc` stage finds every such failure in the transcripts
+and what followed (`results/heredoc.json`). It affected 12 of the 30
+code-quality runs, 24 of 30 reproducibility, 1 of 30 failing-test, 43
+of 60 multi-agent, 23 of 30 use-calkit, and 55 of 60 messy-paper runs,
+at similar rates in the conditions each question compares. Most
+failures (189 of 228) were a Python script fed on stdin, usually to look
+at the data or check a result, which agents ran another way (with `python
+-c`, from a scratch file, or with another command); the rest wrote a file
+(37) or a commit message (2). The error was always shown to the agent,
+and in every case where the command was meant to write or change a file
+in the project, the file was written again with a file tool or is in the
+final workspace, and both failed commit messages were followed by a
+commit that went through, so no deliverable or commit was lost. The
+concern for the reproducibility questions, that an agent which would have
+run its analysis as unsaved inline code instead saved it as a script,
+doesn't arise in the reproducibility or use-calkit runs: the six
+exploration scripts saved to the project after a failure were all
+deleted before the end. Three scripts kept to the end followed only an
+empty here-document the agent ran to test whether they worked, two in
+messy-paper (one in each condition) and one test file in multi-agent.
+The cost was a wasted tool call per failure, usually one or two a run.
+So these runs were kept, and the runner left unchanged so they stay
+current; a here-document works in the `superpowers` runs, where
+`TMPPREFIX` is set inside the run's temp dir.
 
 **Dropped question.** The original experiments included a third,
 `vibe-coding`, asking "What degrees of vibe coding are appropriate for what
