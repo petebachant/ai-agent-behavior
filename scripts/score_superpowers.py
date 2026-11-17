@@ -34,10 +34,12 @@ Each build is scored on:
   summed over its turns, and the turns and replies the conversation took.
 
 Conditions pair a simulated user (``dev``, a developer, or ``nondev``,
-someone who isn't one) with an arm (``default`` or ``superpowers``). The
-pre-registered comparisons pool the two users; each is also reported
-separately. From each session are also recorded the Superpowers skills the
-agent invoked.
+someone who isn't one) with an arm: ``default``, ``superpowers``
+(installed, never mentioned), or ``asked`` (installed, with the request
+asking the agent to use it, from ``runs/superpowers-asked``). The
+pre-registered comparisons, each arm with Superpowers against the default,
+pool the two users; each is also reported separately. From each session
+are also recorded the Superpowers skills the agent invoked.
 """
 
 import ast
@@ -68,7 +70,10 @@ from score_code_quality import count_tests, quality_metrics
 EXPERIMENT = "superpowers"
 EXP_DIR = REPO / "experiments" / EXPERIMENT
 CHANGE_DIR = EXP_DIR / "change"
-ARMS = ["default", "superpowers"]
+ARMS = ["default", "superpowers", "asked"]
+# The arm each experiment's runs belong to; superpowers' own runs are
+# default or superpowers by condition
+ASKED_EXPERIMENT = "superpowers-asked"
 USERS = ["dev", "nondev"]
 CHECK_FILES = {"stated": EXP_DIR / "checks" / "test_stated.py",
                "unstated": EXP_DIR / "checks" / "test_unstated.py"}
@@ -90,7 +95,8 @@ GENERATED = ["__pycache__/*", "*.pyc", ".venv/*", "venv/*", "env/*",
              "build/*", "dist/*", ".DS_Store", "kitty.json"]
 STYLE = {
     "default": {"color": TEXT_SECONDARY, "label": "Default"},
-    "superpowers": {"color": "#2a78d6", "label": "Superpowers"},
+    "superpowers": {"color": "#2a78d6", "label": "Superpowers, installed"},
+    "asked": {"color": "#eb6834", "label": "Superpowers, asked"},
 }
 USER_MARKER = {"dev": "o", "nondev": "^"}
 
@@ -308,7 +314,7 @@ def frac(results: dict[str, bool]) -> float:
     return sum(results.values()) / len(results)
 
 
-def score_build(run: dict, timeout_s: float) -> dict:
+def score_build(run: dict, timeout_s: float, arm: str) -> dict:
     with extracted(run["workspace_tar"]) as ws:
         code_dir, layout = find_package(ws)
         results = run_checks(code_dir, CHECK_FILES)
@@ -323,7 +329,7 @@ def score_build(run: dict, timeout_s: float) -> dict:
         "run_id": run["run_id"],
         "condition": run["condition"],
         "user": run["user"],
-        "arm": "superpowers" if run["superpowers"] else "default",
+        "arm": arm,
         "agent": run["agent"],
         "model": run["model"],
         "rep": run["rep"],
@@ -430,9 +436,9 @@ def summarize(records: list[dict]) -> dict:
     }
 
 
-def compare(groups: dict) -> dict:
-    """Superpowers against the default."""
-    d, s = groups["default"], groups["superpowers"]
+def compare(groups: dict, arm: str) -> dict:
+    """An arm with Superpowers against the default."""
+    d, s = groups["default"], groups[arm]
 
     def diff(key):
         if d[key] is None or s[key] is None:
@@ -461,13 +467,15 @@ def compare(groups: dict) -> dict:
 def by_arm(records: list[dict]) -> dict:
     groups = {a: summarize([r for r in records if r["arm"] == a])
               for a in ARMS}
-    groups["comparison"] = compare(groups)
+    groups["comparison"] = compare(groups, "superpowers")
+    groups["comparison_asked"] = compare(groups, "asked")
     return groups
 
 
-def hypothesis_checks(groups: dict) -> dict:
-    c = groups["comparison"]
-    d, s = groups["default"], groups["superpowers"]
+def hypothesis_checks(groups: dict, arm: str) -> dict:
+    """The pre-registered predictions, for one arm against the default."""
+    c = groups["comparison" if arm == "superpowers" else f"comparison_{arm}"]
+    d, s = groups["default"], groups[arm]
 
     def within(key):
         return c[key] is not None and abs(c[key]) <= PASS_RATE_MARGIN
@@ -518,8 +526,8 @@ def plot(records: list[dict], summary: dict, path: Path) -> None:
                 vals = [r[key] * scale for r in records
                         if r["arm"] == arm and r["user"] == user
                         and r.get(key) is not None]
-                x0 = i + (k - 0.5) * 0.32
-                xs = [x0 + (j - (len(vals) - 1) / 2) * 0.05
+                x0 = i + (k - 0.5) * 0.3
+                xs = [x0 + (j - (len(vals) - 1) / 2) * 0.04
                       for j in range(len(vals))]
                 ax.scatter(xs, vals, s=36, marker=USER_MARKER[user],
                            color=STYLE[arm]["color"], edgecolor="white",
@@ -529,7 +537,8 @@ def plot(records: list[dict], summary: dict, path: Path) -> None:
             if vals:
                 ax.hlines(statistics.median(vals), i - 0.4, i + 0.4,
                           color=STYLE[arm]["color"], linewidth=2, zorder=2)
-        ax.set_xticks(range(len(ARMS)), [STYLE[a]["label"] for a in ARMS],
+        ax.set_xticks(range(len(ARMS)),
+                      [STYLE[a]["label"].replace(", ", ",\n") for a in ARMS],
                       color=TEXT)
         ax.set_xlim(-0.6, len(ARMS) - 0.4)
         ax.set_title(label, color=TEXT, loc="left", fontsize=10)
@@ -540,8 +549,8 @@ def plot(records: list[dict], summary: dict, path: Path) -> None:
         for k, user in enumerate(USERS):
             for i, arm in enumerate(ARMS):
                 v = summary["by_user"][user][arm][key]
-                x = k + (i - 0.5) * 0.38
-                ax.bar(x, 100 * (v or 0), width=0.36,
+                x = k + (i - (len(ARMS) - 1) / 2) * 0.27
+                ax.bar(x, 100 * (v or 0), width=0.25,
                        color=STYLE[arm]["color"])
         ax.set_xticks(range(len(USERS)), ["Developer", "Non-developer"],
                       color=TEXT)
@@ -555,9 +564,10 @@ def plot(records: list[dict], summary: dict, path: Path) -> None:
                    label={"dev": "Developer user",
                           "nondev": "Non-developer user"}[u])
         for u in USERS]
-    fig.legend(handles=handles, loc="lower center", ncol=4, frameon=False,
+    fig.legend(handles=handles, loc="lower center", ncol=5, frameon=False,
                bbox_to_anchor=(0.5, -0.03))
-    fig.suptitle("Claude Code building kitty, with and without Superpowers",
+    fig.suptitle("Claude Code building kitty: without Superpowers, with it"
+                 " installed, and asked to use it",
                  color=TEXT, x=0.01, ha="left")
     fig.text(0.99, 0.965, "Dots are runs; lines are medians",
              color=TEXT_SECONDARY, ha="right", fontsize=9)
@@ -584,19 +594,24 @@ def main() -> None:
         }
 
     records, failed = [], []
-    for run in load_runs(EXPERIMENT):
-        if run["ended"] in ("agent_error", "user_error"):
-            failed.append(run["run_id"])
-            continue
-        records.append(score_build(run, timeout_s))
+    for exp in (EXPERIMENT, ASKED_EXPERIMENT):
+        for run in load_runs(exp):
+            if run["ended"] in ("agent_error", "user_error"):
+                failed.append(f"{exp}/{run['run_id']}")
+                continue
+            arm = ("asked" if exp == ASKED_EXPERIMENT
+                   else "superpowers" if run["superpowers"] else "default")
+            records.append(score_build(run, timeout_s, arm))
+    # Conditions are named differently in each experiment
     builds = {(r["rep"], r["condition"]): r for r in records}
-    for run in load_runs(f"{EXPERIMENT}-change"):
-        if run["ended"] in ("agent_error", "user_error"):
-            failed.append(f"change/{run['run_id']}")
-            continue
-        build = builds.get((run["rep"], run["condition"]))
-        if build is not None:
-            build.update(score_change(run, build, change_timeout_s))
+    for exp in (EXPERIMENT, ASKED_EXPERIMENT):
+        for run in load_runs(f"{exp}-change"):
+            if run["ended"] in ("agent_error", "user_error"):
+                failed.append(f"{exp}-change/{run['run_id']}")
+                continue
+            build = builds.get((run["rep"], run["condition"]))
+            if build is not None:
+                build.update(score_change(run, build, change_timeout_s))
     for r in records:
         r.setdefault("change_pass_rate", None)
 
@@ -611,7 +626,8 @@ def main() -> None:
         "check_validation": validation,
         "pass_rate_margin": PASS_RATE_MARGIN,
         "summary": summary,
-        "hypothesis": hypothesis_checks(overall),
+        "hypothesis": hypothesis_checks(overall, "superpowers"),
+        "hypothesis_asked": hypothesis_checks(overall, "asked"),
         "failed_runs": failed,
         "runs": records,
     })

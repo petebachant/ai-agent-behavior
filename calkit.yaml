@@ -1167,15 +1167,23 @@ questions:
       than half of the runs with Superpowers, and fewer than half without,
       will leave tests that pass, and likewise good version control; and
       the median tokens and agent wall time will both be higher with
-      Superpowers.
+      Superpowers. Added after the first 20 builds, in which Claude Code
+      with Superpowers installed never invoked one of its skills, though
+      Superpowers says they trigger automatically, and before any run of
+      the new arm: the same predictions for a third arm, Superpowers
+      installed and the request asking the agent to use it, against the
+      same default runs, and that more than half of that arm's runs will
+      invoke a Superpowers skill.
     approach: >-
-      Claude Code is asked five times with Superpowers installed and five
-      times as installed, for each of two simulated users, a developer and
-      someone who isn't one, to build kitty, a greenfield command-line tool
-      for sharing a group trip's expenses with about a dozen commands. Each
-      user makes a one-page request in their own words, stating the same
-      commands and output formats and never mentioning Superpowers, and
-      replies as the agent works (played by Claude Code with no tools and a
+      Claude Code is asked five times as installed, five times with
+      Superpowers installed, and five times with it installed and asked to
+      use it, for each of two simulated users, a developer and someone who
+      isn't one, to build kitty, a greenfield command-line tool for sharing
+      a group trip's expenses with about a dozen commands. Each user makes a
+      one-page request in their own words, stating the same commands and
+      output formats, which mentions Superpowers only in the third arm, in
+      one added sentence asking the agent to use it, starting with
+      brainstorming, and replies as the agent works (played by Claude Code with no tools and a
       fixed persona), answering from private notes on the details the
       request leaves open. Each build is scored by hidden checks run against
       its command-line interface (of behavior the request states and of
@@ -1186,60 +1194,80 @@ questions:
       version control (a Git repo with everything committed on the main
       branch, nothing left on other branches or worktrees, and no generated
       files tracked); and for cost, by the agent's wall time and tokens.
-      Results are pooled across the two users and also reported for each.
+      Results are pooled across the two users and also reported for each,
+      and each arm with Superpowers is compared with the default.
     answer:
-      if held: >-
-        No, as hypothesized, though it does leave better practices, at a
-        higher cost. Pooling the two simulated users, Claude Code's
-        kitty builds with Superpowers passed {sp_pass:.0%} of the hidden
-        checks on average, against {def_pass:.0%} without it
-        ({sp_unstated:.0%} and {def_unstated:.0%} of those of details
-        only the user's notes gave), and a follow-up change to them
-        passed {sp_change:.0%} of its checks, against {def_change:.0%}.
-        With Superpowers, {sp_tests:.0%} of runs left tests that passed
-        and {sp_vc:.0%} left good version control, against
-        {def_tests:.0%} and {def_vc:.0%} without it. Builds with
-        Superpowers took {time_ratio:.1f}x the agent's median wall time
-        and {token_ratio:.1f}x its median tokens.
-      elif quality_same: >-
-        Not tested as intended: with Superpowers installed, Claude Code
-        invoked its skills in {sp_used:.0%} of runs, building straight
-        from the request instead, so these runs show that installing
-        Superpowers changes little, not whether its workflow does.
-        Pooling the two users, builds with it installed passed
-        {sp_pass:.0%} of the hidden checks on average, against
+      if as_used < 0.5: >-
+        Not tested as intended: even when the user asked for
+        Superpowers, Claude Code mostly didn't invoke its skills.
+        Pooling the two users, builds where the user asked for
+        Superpowers invoked its skills in {as_used:.0%} of runs and
+        passed {as_pass:.0%} of the hidden checks, against
         {def_pass:.0%} without it, and a follow-up change to them passed
-        {sp_change:.0%} of its checks, against {def_change:.0%}. With it,
-        {sp_tests:.0%} of builds left tests that passed and
-        {sp_vc:.0%} good version control, against {def_tests:.0%} and
-        {def_vc:.0%} without it, and median tokens were
-        {token_ratio:.1f}x.
-      elif higher or change_higher: >-
-        Yes, contrary to the hypothesis. Pooling the two simulated
-        users, Claude Code's kitty builds with Superpowers passed
-        {sp_pass:.0%} of the hidden checks on average, against
-        {def_pass:.0%} without it ({sp_unstated:.0%} and
-        {def_unstated:.0%} of those of details only the user's notes
-        gave), and a follow-up change to them passed {sp_change:.0%} of
-        its checks, against {def_change:.0%}. With Superpowers,
-        {sp_tests:.0%} of runs left tests that passed and {sp_vc:.0%}
-        left good version control, against {def_tests:.0%} and
-        {def_vc:.0%} without it. Builds with Superpowers took
-        {time_ratio:.1f}x the agent's median wall time and
-        {token_ratio:.1f}x its median tokens.
+        {as_change:.0%} of its checks, against {def_change:.0%};
+        {as_tests:.0%} left tests that passed and {as_vc:.0%} good
+        version control, against {def_tests:.0%} and {def_vc:.0%}, at
+        {as_time_ratio:.1f}x the median wall time and
+        {as_token_ratio:.1f}x the median tokens. Installed but not
+        mentioned, Superpowers' skills were invoked in {sp_used:.0%} of
+        runs, whose builds passed {sp_pass:.0%} of the hidden checks on
+        average against {def_pass:.0%} without it.
+      elif as_held: >-
+        No, as hypothesized, though it does leave better practices, at a
+        higher cost. Pooling the two users, builds where the user asked
+        for Superpowers invoked its skills in {as_used:.0%} of runs and
+        passed {as_pass:.0%} of the hidden checks, against
+        {def_pass:.0%} without it, and a follow-up change to them passed
+        {as_change:.0%} of its checks, against {def_change:.0%};
+        {as_tests:.0%} left tests that passed and {as_vc:.0%} good
+        version control, against {def_tests:.0%} and {def_vc:.0%}, at
+        {as_time_ratio:.1f}x the median wall time and
+        {as_token_ratio:.1f}x the median tokens. Installed but not
+        mentioned, Superpowers' skills were invoked in {sp_used:.0%} of
+        runs, whose builds passed {sp_pass:.0%} of the hidden checks on
+        average against {def_pass:.0%} without it.
+      elif as_quality_same: >-
+        No, as hypothesized, by the hidden checks; but not every
+        hypothesized difference in practices or cost appeared. Pooling
+        the two users, builds where the user asked for Superpowers
+        invoked its skills in {as_used:.0%} of runs and passed
+        {as_pass:.0%} of the hidden checks, against {def_pass:.0%}
+        without it, and a follow-up change to them passed
+        {as_change:.0%} of its checks, against {def_change:.0%};
+        {as_tests:.0%} left tests that passed and {as_vc:.0%} good
+        version control, against {def_tests:.0%} and {def_vc:.0%}, at
+        {as_time_ratio:.1f}x the median wall time and
+        {as_token_ratio:.1f}x the median tokens. Installed but not
+        mentioned, Superpowers' skills were invoked in {sp_used:.0%} of
+        runs, whose builds passed {sp_pass:.0%} of the hidden checks on
+        average against {def_pass:.0%} without it.
+      elif as_higher or as_change_higher: >-
+        Yes, contrary to the hypothesis. Pooling the two users, builds
+        where the user asked for Superpowers invoked its skills in
+        {as_used:.0%} of runs and passed {as_pass:.0%} of the hidden
+        checks, against {def_pass:.0%} without it, and a follow-up
+        change to them passed {as_change:.0%} of its checks, against
+        {def_change:.0%}; {as_tests:.0%} left tests that passed and
+        {as_vc:.0%} good version control, against {def_tests:.0%} and
+        {def_vc:.0%}, at {as_time_ratio:.1f}x the median wall time and
+        {as_token_ratio:.1f}x the median tokens. Installed but not
+        mentioned, Superpowers' skills were invoked in {sp_used:.0%} of
+        runs, whose builds passed {sp_pass:.0%} of the hidden checks on
+        average against {def_pass:.0%} without it.
       else: >-
         No, and it did worse by the hidden checks, contrary to the
-        hypothesis. Pooling the two simulated users, Claude Code's kitty
-        builds with Superpowers passed {sp_pass:.0%} of the hidden
-        checks on average, against {def_pass:.0%} without it
-        ({sp_unstated:.0%} and {def_unstated:.0%} of those of details
-        only the user's notes gave), and a follow-up change to them
-        passed {sp_change:.0%} of its checks, against {def_change:.0%}.
-        With Superpowers, {sp_tests:.0%} of runs left tests that passed
-        and {sp_vc:.0%} left good version control, against
-        {def_tests:.0%} and {def_vc:.0%} without it. Builds with
-        Superpowers took {time_ratio:.1f}x the agent's median wall time
-        and {token_ratio:.1f}x its median tokens.
+        hypothesis. Pooling the two users, builds where the user asked
+        for Superpowers invoked its skills in {as_used:.0%} of runs and
+        passed {as_pass:.0%} of the hidden checks, against
+        {def_pass:.0%} without it, and a follow-up change to them passed
+        {as_change:.0%} of its checks, against {def_change:.0%};
+        {as_tests:.0%} left tests that passed and {as_vc:.0%} good
+        version control, against {def_tests:.0%} and {def_vc:.0%}, at
+        {as_time_ratio:.1f}x the median wall time and
+        {as_token_ratio:.1f}x the median tokens. Installed but not
+        mentioned, Superpowers' skills were invoked in {sp_used:.0%} of
+        runs, whose builds passed {sp_pass:.0%} of the hidden checks on
+        average against {def_pass:.0%} without it.
     evidence:
       - kind: figure
         path: figures/superpowers.png
@@ -1270,6 +1298,29 @@ questions:
           time_ratio: summary.comparison.ratio_median_agent_s
           token_ratio: summary.comparison.ratio_median_tokens
           sp_used: summary.superpowers.frac_used_superpowers
+          as_held: hypothesis_asked.all
+          as_quality_same: hypothesis_asked.quality_same
+          as_higher: hypothesis_asked.pass_rate_higher
+          as_change_higher: hypothesis_asked.change_higher
+          as_used: summary.asked.frac_used_superpowers
+          as_pass: summary.asked.mean_pass_rate
+          as_stated: summary.asked.mean_stated_pass_rate
+          as_unstated: summary.asked.mean_unstated_pass_rate
+          as_change: summary.asked.mean_change_pass_rate
+          as_regressed: summary.asked.mean_frac_regressed
+          as_tests: summary.asked.frac_passing_tests
+          as_vc: summary.asked.frac_good_version_control
+          as_cov: summary.asked.mean_own_coverage
+          as_replies: summary.asked.median_replies
+          as_time_ratio: summary.comparison_asked.ratio_median_agent_s
+          as_token_ratio: summary.comparison_asked.ratio_median_tokens
+          as_d_ruff: summary.comparison_asked.diff_mean_ruff_per_100_sloc
+          as_d_cc: summary.comparison_asked.diff_mean_mean_cc
+          as_d_mi: summary.comparison_asked.diff_mean_mi
+          dev_as_pass: summary.by_user.dev.asked.mean_pass_rate
+          nondev_as_pass: summary.by_user.nondev.asked.mean_pass_rate
+          dev_as_unstated: summary.by_user.dev.asked.mean_unstated_pass_rate
+          nondev_as_unstated: summary.by_user.nondev.asked.mean_unstated_pass_rate
           d_ruff: summary.comparison.diff_mean_ruff_per_100_sloc
           d_cc: summary.comparison.diff_mean_mean_cc
           d_mi: summary.comparison.diff_mean_mi
@@ -1284,27 +1335,32 @@ questions:
           nondev_def_unstated: summary.by_user.nondev.default.mean_unstated_pass_rate
           nondev_sp_unstated: summary.by_user.nondev.superpowers.mean_unstated_pass_rate
     notes: >-
-      Each of the four combinations of user and Superpowers ran five times
-      ({n} runs per arm), with Superpowers 7.0.2 and Claude Code's pinned
-      model. By user, the mean fraction of hidden checks passed was
-      {dev_def_pass:.0%} without Superpowers and {dev_sp_pass:.0%} with it
-      for the developer, and {nondev_def_pass:.0%} and {nondev_sp_pass:.0%}
-      for the non-developer; for the checks of details only the notes
-      gave, {dev_def_unstated:.0%} and {dev_sp_unstated:.0%}, and
-      {nondev_def_unstated:.0%} and {nondev_sp_unstated:.0%}. Pooled, the
-      checks of behavior the request stated were passed at {def_stated:.0%}
-      without Superpowers and {sp_stated:.0%} with it. The follow-up change
-      broke {def_regressed:.0%} and {sp_regressed:.0%} of the checks each
-      build had passed. Builds' own tests covered {def_cov:.0%} and
-      {sp_cov:.0%} of the package's lines on average, counting none for a
-      build without tests. With Superpowers, mean lint violations per 100 SLOC changed
-      by {d_ruff:+.1f}, mean cyclomatic complexity by {d_cc:+.2f}, and
-      maintainability index by {d_mi:+.1f}. Superpowers skills were
-      invoked in {sp_used:.0%} of the runs with it installed. The median
-      conversation took {def_replies:g} replies from the simulated user
-      without Superpowers and {sp_replies:g} with it. The runner was
-      checked on a different, one-line request before the recorded runs
-      (see the README).
+      Each combination of user and arm ran five times ({n} runs per arm),
+      with Superpowers 7.0.2 and Claude Code's pinned model. By user, the
+      mean fraction of hidden checks passed was {dev_def_pass:.0%} without
+      Superpowers, {dev_sp_pass:.0%} with it installed, and
+      {dev_as_pass:.0%} with it asked for, for the developer, and
+      {nondev_def_pass:.0%}, {nondev_sp_pass:.0%}, and {nondev_as_pass:.0%}
+      for the non-developer; for the checks of details only the notes gave,
+      {dev_def_unstated:.0%}, {dev_sp_unstated:.0%}, and
+      {dev_as_unstated:.0%}, and {nondev_def_unstated:.0%},
+      {nondev_sp_unstated:.0%}, and {nondev_as_unstated:.0%}. Pooled, the
+      checks of behavior the request stated were passed at {def_stated:.0%},
+      {sp_stated:.0%}, and {as_stated:.0%}. The follow-up change broke
+      {def_regressed:.0%}, {sp_regressed:.0%}, and {as_regressed:.0%} of the
+      checks each build had passed. Builds' own tests covered {def_cov:.0%},
+      {sp_cov:.0%}, and {as_cov:.0%} of the package's lines on average,
+      counting none for a build without tests. Against the default, mean
+      lint violations per 100 SLOC changed by {d_ruff:+.1f} with Superpowers
+      installed and {as_d_ruff:+.1f} with it asked for, mean cyclomatic
+      complexity by {d_cc:+.2f} and {as_d_cc:+.2f}, and maintainability
+      index by {d_mi:+.1f} and {as_d_mi:+.1f}. The median conversation took
+      {def_replies:g}, {sp_replies:g}, and {as_replies:g} replies from the
+      simulated user. The asked arm was added after the first two arms had
+      run, since Superpowers' skills were never invoked in the second; the
+      runner was checked on a different, one-line request before the first
+      recorded runs, and the asked arm's request on one unrecorded run
+      before its own (see the README).
 references:
   - path: references.bib
 
@@ -1572,6 +1628,101 @@ pipeline:
           storage: git
         - runs/superpowers-change/{agent}/rep-{rep}/workspaces
         - runs/superpowers-change/{agent}/rep-{rep}/trees
+    run-superpowers-asked:
+      kind: python-script
+      description: >-
+        Run Claude Code with Superpowers installed on the superpowers
+        experiment's build, with each user's request asking it to use
+        Superpowers, in a conversation with the simulated user, saving full
+        sessions and final workspaces.
+      script_path: scripts/run_superpowers_asked.py
+      args:
+        - --rep={rep}
+        - --agents={agent}
+        - --out=runs/superpowers-asked/{agent}/rep-{rep}
+      environment: main
+      requirements:
+        - *macos
+        - *npm
+        - *node
+        - *claude-token
+        - kind: app
+          name: git
+          description: >-
+            Fetches Superpowers at the commit pinned in the experiment's
+            config, which the runner does itself.
+      iterate_over:
+        - arg_name: agent
+          values:
+            - claude
+        - arg_name: rep
+          values:
+            - range:
+                start: 1
+                stop: 6
+      inputs:
+        - scripts/run_experiment.py
+        - scripts/run_superpowers.py
+        - agents/{agent}.yaml
+        - agents/clis/{agent}
+        - agents/sandbox.sb
+        - experiments/superpowers/experiment.yaml
+        - experiments/superpowers/user
+        - experiments/superpowers-asked/experiment.yaml
+        - experiments/superpowers-asked/user
+      outputs:
+        - path: runs/superpowers-asked/{agent}/rep-{rep}/sessions
+          storage: git
+        - runs/superpowers-asked/{agent}/rep-{rep}/workspaces
+        - runs/superpowers-asked/{agent}/rep-{rep}/trees
+    change-superpowers-asked:
+      kind: python-script
+      description: >-
+        Give each of a repetition's finished kitty builds from the asked arm
+        the superpowers experiment's follow-up change, made by Claude Code
+        as installed in a conversation with the simulated developer, saving
+        full sessions and final workspaces.
+      script_path: scripts/run_superpowers_asked.py
+      args:
+        - --phase=change
+        - --rep={rep}
+        - --agents={agent}
+        - --from=runs/superpowers-asked/{agent}/rep-{rep}
+        - --out=runs/superpowers-asked-change/{agent}/rep-{rep}
+      environment: main
+      requirements:
+        - *macos
+        - *npm
+        - *node
+        - *claude-token
+      iterate_over:
+        - arg_name: agent
+          values:
+            - claude
+        - arg_name: rep
+          values:
+            - range:
+                start: 1
+                stop: 6
+      inputs:
+        - scripts/run_experiment.py
+        - scripts/run_superpowers.py
+        - agents/{agent}.yaml
+        - agents/clis/{agent}
+        - agents/sandbox.sb
+        - experiments/superpowers/experiment.yaml
+        - experiments/superpowers/change/change.yaml
+        - experiments/superpowers/change/request.md
+        - experiments/superpowers/change/notes.md
+        - experiments/superpowers/user/dev/persona.md
+        - experiments/superpowers-asked/experiment.yaml
+        - experiments/superpowers-asked/change/change.yaml
+        - runs/superpowers-asked/{agent}/rep-{rep}/workspaces
+      outputs:
+        - path: runs/superpowers-asked-change/{agent}/rep-{rep}/sessions
+          storage: git
+        - runs/superpowers-asked-change/{agent}/rep-{rep}/workspaces
+        - runs/superpowers-asked-change/{agent}/rep-{rep}/trees
     run-use-calkit:
       kind: python-script
       description: >-
@@ -1899,6 +2050,8 @@ pipeline:
         - experiments/superpowers/change/reference
         - runs/superpowers
         - runs/superpowers-change
+        - runs/superpowers-asked
+        - runs/superpowers-asked-change
       outputs:
         - path: results/superpowers.json
           storage: git

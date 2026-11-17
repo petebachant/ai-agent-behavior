@@ -207,7 +207,11 @@ others.
   how leftover cents are split and what happens to old expenses when a
   rate changes. There are two simulated users, a developer and someone who
   isn't one (whose request frames the commands and formats as a friend's
-  notes), so four conditions. Superpowers brainstorms and asks for
+  notes), so four conditions. A third arm added later
+  (`experiments/superpowers-asked`, `scripts/run_superpowers_asked.py`)
+  installs Superpowers the same way and adds one sentence to each user's
+  request asking the agent to use it, starting with brainstorming, so two
+  more. Superpowers brainstorms and asks for
   approval before building, so the run is a conversation
   (`scripts/run_superpowers.py`): after each agent turn, the simulated
   user replies, and the agent's session resumes with the reply. The
@@ -383,6 +387,23 @@ empty project, and the three variants above, and the scorer against
 hand-made workspaces with and without tests, Git histories that were
 clean, uncommitted, or tracked the tool's data file, and change
 workspaces.
+
+In the first 20 builds and their changes, Claude Code with Superpowers
+installed never invoked one of its skills, though Superpowers says they
+trigger automatically: it built straight from the request, which it
+judged detailed enough not to need a design round. The smoke test above
+had already shown this on a one-line request, and that wasn't taken as a
+sign it would happen on the real one. So a third arm,
+`superpowers-asked`, was added after those runs were scored, with its
+hypothesis, approach, and answer's wording for each outcome registered
+before any of its runs. It differs only in one sentence added to each
+user's request asking the agent to use Superpowers, starting with
+brainstorming; its runner checks that its pinned plugin, model, limits,
+personas, notes, and follow-up change are the first two arms', and it
+is compared with the same default runs. Its request was checked on one
+unrecorded developer run, stopped after the agent had invoked
+`superpowers:brainstorming` as its first action and the simulated user
+had answered its first proposal from the notes.
 
 **Agent versions.** OpenCode's original credentials expired before these
 later experiments ran, and OpenCode was upgraded from 1.19.0 to 2.1.4
